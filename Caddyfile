@@ -1,36 +1,27 @@
 # Caddyfile for Nebula
-# Replace api.yourdomain.com with your actual domain
+# Set your domain in .env as APP_DOMAIN=api.yourdomain.com
+# then run: APP_DOMAIN=api.yourdomain.com caddy run
 
-api.yourdomain.com {
-    # Enable HSTS
-    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
-    
+{$APP_DOMAIN} {
     # Security headers
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
     header X-Content-Type-Options "nosniff"
     header X-Frame-Options "DENY"
     header X-XSS-Protection "1; mode=block"
-    
+
     # Proxy to API service
     reverse_proxy localhost:8080 {
-        # Health check
         health_uri /v1/health
         health_interval 30s
-        
-        # Headers
+
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
     }
-    
-    # Logging
+
     log {
         output file /var/log/caddy/nebula-access.log
         format json
     }
-}
-
-# Optional: Redirect www to non-www
-www.api.yourdomain.com {
-    redir https://api.yourdomain.com{uri} permanent
 }
