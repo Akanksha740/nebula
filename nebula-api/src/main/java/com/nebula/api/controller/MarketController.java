@@ -1,0 +1,125 @@
+package com.nebula.api.controller;
+
+import com.nebula.api.service.MarketService;
+import com.nebula.common.dto.MarketDto;
+import com.nebula.common.dto.MarketsListResponse;
+import com.nebula.common.dto.MarketWithSnapshotsResponse;
+import com.nebula.common.entity.Coin;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Instant;
+
+@RestController
+@RequestMapping("/v1/markets")
+@RequiredArgsConstructor
+@Tag(name = "Markets", description = "Market data endpoints with pagination and filtering")
+public class MarketController {
+
+    private final MarketService marketService;
+
+    @GetMapping
+    @Operation(summary = "List all markets with pagination",
+               description = "Returns markets sorted by start_time descending (newest first)")
+    public ResponseEntity<MarketsListResponse> getMarkets(
+            @Parameter(description = "Cryptocurrency to query (btc, eth, sol)", required = true)
+            @RequestParam String coin,
+            
+            @Parameter(description = "Number of results to return (1-100)")
+            @RequestParam(defaultValue = "50") int limit,
+            
+            @Parameter(description = "Pagination offset")
+            @RequestParam(defaultValue = "0") int offset,
+            
+            @Parameter(description = "Filter by market type (5m, 15m, 1hr, 4hr, 24hr)")
+            @RequestParam(required = false) String market_type,
+            
+            @Parameter(description = "Filter by resolution status")
+            @RequestParam(required = false) Boolean resolved,
+            
+            @Parameter(description = "Filter markets starting after this time (ms epoch or ISO8601)")
+            @RequestParam(required = false) String start_time,
+            
+            @Parameter(description = "Filter markets starting before this time (ms epoch or ISO8601)")
+            @RequestParam(required = false) String end_time) {
+        
+        // Parse coin
+        Coin coinEnum = parseCoin(coin);
+        
+        // Validate limit
+        if (limit < 1) limit = 1;
+        if (limit > 100) limit = 100;
+        
+        // Validate offset
+        if (offset < 0) offset = 0;
+        
+        // Parse time filters
+        Instant startTimeAfter = parseTime(start_time);
+        Instant startTimeBefore = parseTime(end_time);
+        
+        MarketsListResponse response = marketService.getMarkets(
+                coinEnum, market_type, resolved, startTimeAfter, startTimeBefore, limit, offset);
+        
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{slug}")
+    @Operation(summary = "Get market data by slug")
+    public ResponseEntity<MarketDto> getMarket(
+            @Parameter(description = "Cryptocurrency to query", required = true)
+            @RequestParam String coin,
+            @PathVariable String slug) {
+        parseCoin(coin); // Validate coin
+        return ResponseEntity.ok(marketService.getMarketBySlug(slug));
+    }
+
+    @GetMapping("/{slug}/snapshots")
+    @Operation(summary = "Get market with snapshots by slug")
+    public ResponseEntity<MarketWithSnapshotsResponse> getMarketWithSnapshots(
+            @Parameter(description = "Cryptocurrency to query", required = true)
+            @RequestParam String coin,
+            @PathVariable String slug,
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            @Parameter(description = "Include full orderbook data (default: false for lower latency)")
+            @RequestParam(defaultValue = "false") boolean include_orderbook) {
+        parseCoin(coin); // Validate coin
+        return ResponseEntity.ok(marketService.getMarketWithSnapshots(slug, limit, offset, include_orderbook));
+    }
+
+    private Coin parseCoin(String coin) {
+        if (coin == null || coin.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "coin parameter is required");
+        }
+        try {
+            return Coin.valueOf(coin.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, 
+                    "Invalid coin: " + coin + ". Supported values: btc, eth, sol");
+        }
+    }
+
+    private Instant parseTime(String time) {
+        if (time == null || time.isBlank()) {
+            return null;
+        }
+        try {
+            // Try parsing as epoch milliseconds
+            long epoch = Long.parseLong(time);
+            return Instant.ofEpochMilli(epoch);
+        } catch (NumberFormatException e) {
+            // Try parsing as ISO8601
+            try {
+                return Instant.parse(time);
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+    }
+}

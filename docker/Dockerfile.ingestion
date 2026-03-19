@@ -1,0 +1,42 @@
+# Build stage
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
+
+WORKDIR /app
+
+# Copy parent pom and module poms for dependency caching
+COPY pom.xml .
+COPY nebula-common/pom.xml nebula-common/
+COPY nebula-api/pom.xml nebula-api/
+COPY nebula-ingestion/pom.xml nebula-ingestion/
+
+# Download dependencies (cached layer)
+RUN mvn dependency:go-offline -B
+
+# Copy source code
+COPY nebula-common/src nebula-common/src
+COPY nebula-ingestion/src nebula-ingestion/src
+
+# Build the application
+RUN mvn clean package -pl nebula-ingestion -am -DskipTests -B
+
+# Runtime stage
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+# Add non-root user
+RUN addgroup -S nebula && adduser -S nebula -G nebula
+USER nebula
+
+# Copy the jar
+COPY --from=build /app/nebula-ingestion/target/*.jar app.jar
+
+# Expose port
+EXPOSE 8081
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD wget -q --spider http://localhost:8081/actuator/health || exit 1
+
+# Run the application
+ENTRYPOINT ["java", "-XX:+UseContainerSupport", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]
