@@ -39,6 +39,14 @@ nebula:
     expiration-ms: 86400000  # 24 hours
   app:
     base-url: ${APP_BASE_URL:http://localhost:3000}
+  email-verification:
+    token-expiry-hours: 24
+
+# Resend Configuration (Email)
+resend:
+  api:
+    key: ${RESEND_API_KEY:}
+  from-email: ${RESEND_FROM_EMAIL:noreply@yourdomain.com}
 
 # Stripe Configuration
 stripe:

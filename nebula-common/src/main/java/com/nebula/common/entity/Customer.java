@@ -52,6 +52,12 @@ public class Customer {
     @Builder.Default
     private Boolean emailVerified = false;
 
+    @Column(name = "email_verification_token")
+    private String emailVerificationToken;
+
+    @Column(name = "email_verification_token_expiry")
+    private Instant emailVerificationTokenExpiry;
+
     @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<ApiKey> apiKeys = new ArrayList<>();

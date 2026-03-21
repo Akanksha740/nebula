@@ -3,6 +3,7 @@ package com.nebula.api.service;
 import com.nebula.api.repository.CustomerRepository;
 import com.nebula.api.security.JwtTokenProvider;
 import com.nebula.common.dto.CustomerDto;
+import com.nebula.common.dto.request.GoogleAuthRequest;
 import com.nebula.common.dto.request.LoginRequest;
 import com.nebula.common.dto.request.RegisterRequest;
 import com.nebula.common.dto.response.AuthResponse;
@@ -12,9 +13,16 @@ import com.nebula.common.exception.ValidationException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -25,12 +33,21 @@ public class AuthService {
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final EmailService emailService;
+
+    @Value("${GOOGLE_CLIENT_ID:}")
+    private String googleClientId;
+
+    @Value("${nebula.email-verification.token-expiry-hours:24}")
+    private int tokenExpiryHours;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (customerRepository.existsByEmail(request.getEmail())) {
             throw new ValidationException("Email already registered");
         }
+
+        String verificationToken = UUID.randomUUID().toString();
 
         Customer customer = Customer.builder()
                 .email(request.getEmail())
@@ -39,10 +56,14 @@ public class AuthService {
                 .tier(Customer.SubscriptionTier.FREE)
                 .isActive(true)
                 .emailVerified(false)
+                .emailVerificationToken(verificationToken)
+                .emailVerificationTokenExpiry(Instant.now().plus(tokenExpiryHours, ChronoUnit.HOURS))
                 .build();
 
         customer = customerRepository.save(customer);
         log.info("New customer registered: {}", customer.getEmail());
+
+        emailService.sendVerificationEmail(customer.getEmail(), verificationToken);
 
         String token = jwtTokenProvider.generateToken(customer);
         return AuthResponse.of(token, jwtTokenProvider.getExpirationMs(), toDto(customer));
@@ -60,10 +81,115 @@ public class AuthService {
             throw new UnauthorizedException("Account is disabled");
         }
 
+        if (!customer.getEmailVerified()) {
+            throw new UnauthorizedException("Email not verified. Please check your inbox for the verification link.");
+        }
+
         String token = jwtTokenProvider.generateToken(customer);
         log.info("Customer logged in: {}", customer.getEmail());
 
         return AuthResponse.of(token, jwtTokenProvider.getExpirationMs(), toDto(customer));
+    }
+
+    @Transactional
+    public void verifyEmail(String token) {
+        Customer customer = customerRepository.findByEmailVerificationToken(token)
+                .orElseThrow(() -> new ValidationException("Invalid verification token"));
+
+        if (customer.getEmailVerified()) {
+            return; // already verified
+        }
+
+        if (customer.getEmailVerificationTokenExpiry() != null
+                && Instant.now().isAfter(customer.getEmailVerificationTokenExpiry())) {
+            throw new ValidationException("Verification token has expired. Please request a new one.");
+        }
+
+        customer.setEmailVerified(true);
+        customer.setEmailVerificationToken(null);
+        customer.setEmailVerificationTokenExpiry(null);
+        customerRepository.save(customer);
+
+        log.info("Email verified for customer: {}", customer.getEmail());
+    }
+
+    @Transactional
+    public void resendVerificationEmail(String email) {
+        Customer customer = customerRepository.findByEmail(email)
+                .orElseThrow(() -> new ValidationException("No account found with this email"));
+
+        if (customer.getEmailVerified()) {
+            throw new ValidationException("Email is already verified");
+        }
+
+        String verificationToken = UUID.randomUUID().toString();
+        customer.setEmailVerificationToken(verificationToken);
+        customer.setEmailVerificationTokenExpiry(Instant.now().plus(tokenExpiryHours, ChronoUnit.HOURS));
+        customerRepository.save(customer);
+
+        emailService.sendVerificationEmail(customer.getEmail(), verificationToken);
+        log.info("Resent verification email to: {}", customer.getEmail());
+    }
+
+    @Transactional
+    public AuthResponse googleAuth(GoogleAuthRequest request) {
+        Map<String, Object> payload = verifyGoogleToken(request.getCredential());
+
+        String email = (String) payload.get("email");
+        String name = (String) payload.get("name");
+
+        if (email == null || email.isBlank()) {
+            throw new ValidationException("Could not retrieve email from Google");
+        }
+
+        // Find existing or create new customer
+        Customer customer = customerRepository.findByEmail(email).orElse(null);
+
+        if (customer == null) {
+            customer = Customer.builder()
+                    .email(email)
+                    .passwordHash(passwordEncoder.encode(UUID.randomUUID().toString()))
+                    .companyName(name)
+                    .tier(Customer.SubscriptionTier.FREE)
+                    .isActive(true)
+                    .emailVerified(true)
+                    .build();
+            customer = customerRepository.save(customer);
+            log.info("New customer registered via Google: {}", email);
+        } else {
+            if (!customer.getIsActive()) {
+                throw new UnauthorizedException("Account is disabled");
+            }
+            log.info("Existing customer logged in via Google: {}", email);
+        }
+
+        String token = jwtTokenProvider.generateToken(customer);
+        return AuthResponse.of(token, jwtTokenProvider.getExpirationMs(), toDto(customer));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> verifyGoogleToken(String credential) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + credential;
+            Map<String, Object> payload = restTemplate.getForObject(url, Map.class);
+
+            if (payload == null) {
+                throw new UnauthorizedException("Invalid Google token");
+            }
+
+            String aud = (String) payload.get("aud");
+            if (!googleClientId.equals(aud)) {
+                throw new UnauthorizedException("Google token audience mismatch");
+            }
+
+            return payload;
+        } catch (UnauthorizedException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Google token verification failed", e);
+            throw new UnauthorizedException("Invalid Google token");
+        }
     }
 
     public CustomerDto getCurrentCustomer(Customer customer) {

@@ -32,7 +32,7 @@
         <flyway.version>10.8.1</flyway.version>
         
         <!-- Utilities -->
-        <lombok.version>1.18.30</lombok.version>
+        <lombok.version>1.18.36</lombok.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <guava.version>33.0.0-jre</guava.version>
         

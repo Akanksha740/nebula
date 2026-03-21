@@ -14,5 +14,7 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     Optional<Customer> findByStripeCustomerId(String stripeCustomerId);
 
+    Optional<Customer> findByEmailVerificationToken(String emailVerificationToken);
+
     boolean existsByEmail(String email);
 }

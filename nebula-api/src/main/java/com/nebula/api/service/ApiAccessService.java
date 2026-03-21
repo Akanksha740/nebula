@@ -28,6 +28,7 @@ public class ApiAccessService {
         "/health",
         "/v1/auth/login",
         "/v1/auth/register",
+        "/v1/auth/google",
         "/v1/auth/refresh",
         "/v1/webhooks/stripe",
         "/v1/admin",
