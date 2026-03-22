@@ -1,6 +1,7 @@
 package com.nebula.api.controller;
 
 import com.nebula.api.service.ApiKeyService;
+import com.nebula.api.service.AuthService;
 import com.nebula.api.service.BillingService;
 import com.nebula.api.service.UsageTrackingService;
 import com.nebula.common.dto.ApiKeyDto;
@@ -8,11 +9,14 @@ import com.nebula.common.dto.UsageStatsDto;
 import com.nebula.common.dto.request.CreateApiKeyRequest;
 import com.nebula.common.dto.response.ApiResponse;
 import com.nebula.common.entity.Customer;
+import com.nebula.common.exception.UnauthorizedException;
 import com.nebula.common.util.ApiKeyGenerator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -27,14 +31,19 @@ import java.util.UUID;
 @Tag(name = "Account", description = "Account management endpoints")
 public class AccountController {
 
+    private static final Logger log = LoggerFactory.getLogger(AccountController.class);
+
     private final ApiKeyService apiKeyService;
     private final UsageTrackingService usageTrackingService;
     private final BillingService billingService;
+    private final AuthService authService;
 
     @GetMapping("/api-keys")
     @Operation(summary = "List all API keys")
     public ResponseEntity<ApiResponse<List<ApiKeyDto>>> getApiKeys(
             @AuthenticationPrincipal Customer customer) {
+        requireAuth(customer);
+        log.info("List API keys: customer={}", customer.getEmail());
         List<ApiKeyDto> keys = apiKeyService.getCustomerApiKeys(customer.getId());
         return ResponseEntity.ok(ApiResponse.success(keys));
     }
@@ -44,14 +53,15 @@ public class AccountController {
     public ResponseEntity<ApiResponse<Map<String, String>>> createApiKey(
             @AuthenticationPrincipal Customer customer,
             @Valid @RequestBody CreateApiKeyRequest request) {
-        
+        requireAuth(customer);
+        log.info("Create API key: name={}, customer={}", request.getName(), customer.getEmail());
         ApiKeyGenerator.GeneratedKey generated = apiKeyService.createApiKey(customer, request);
-        
+
         Map<String, String> response = Map.of(
                 "apiKey", generated.rawKey(),
                 "message", "Store this key securely. It won't be shown again."
         );
-        
+
         return ResponseEntity.ok(ApiResponse.success(response, "API key created successfully"));
     }
 
@@ -60,7 +70,8 @@ public class AccountController {
     public ResponseEntity<ApiResponse<Void>> revokeApiKey(
             @AuthenticationPrincipal Customer customer,
             @PathVariable UUID keyId) {
-        
+        requireAuth(customer);
+        log.info("Revoke API key: keyId={}, customer={}", keyId, customer.getEmail());
         apiKeyService.revokeApiKey(customer.getId(), keyId);
         return ResponseEntity.ok(ApiResponse.success(null, "API key revoked successfully"));
     }
@@ -69,16 +80,10 @@ public class AccountController {
     @Operation(summary = "Get API usage statistics")
     public ResponseEntity<ApiResponse<UsageStatsDto>> getUsage(
             @AuthenticationPrincipal Customer customer) {
+        requireAuth(customer);
+        log.info("Usage stats: customer={}", customer.getEmail());
         UsageStatsDto stats = usageTrackingService.getUsageStats(customer);
         return ResponseEntity.ok(ApiResponse.success(stats));
-    }
-
-    @GetMapping("/subscription")
-    @Operation(summary = "Get subscription details")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getSubscription(
-            @AuthenticationPrincipal Customer customer) {
-        Map<String, Object> details = billingService.getSubscriptionDetails(customer);
-        return ResponseEntity.ok(ApiResponse.success(details));
     }
 
     @PostMapping("/subscription/checkout")
@@ -86,8 +91,29 @@ public class AccountController {
     public ResponseEntity<ApiResponse<Map<String, String>>> createCheckoutSession(
             @AuthenticationPrincipal Customer customer,
             @RequestParam Customer.SubscriptionTier tier) {
-        
-        String checkoutUrl = billingService.createCheckoutSession(customer, tier);
+
+        requireAuth(customer);
+        log.info("Checkout requested: customer={}, tier={}", customer.getEmail(), tier);
+        String checkoutUrl = billingService.getCheckoutUrl(customer, tier);
         return ResponseEntity.ok(ApiResponse.success(Map.of("checkoutUrl", checkoutUrl)));
+    }
+
+    @PostMapping("/change-password")
+    @Operation(summary = "Change account password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @AuthenticationPrincipal Customer customer,
+            @RequestBody Map<String, String> request) {
+
+        requireAuth(customer);
+        String currentPassword = request.get("currentPassword");
+        String newPassword = request.get("newPassword");
+        authService.changePassword(customer, currentPassword, newPassword);
+        return ResponseEntity.ok(ApiResponse.success(null, "Password changed successfully"));
+    }
+
+    private void requireAuth(Customer customer) {
+        if (customer == null) {
+            throw new UnauthorizedException("Authentication required");
+        }
     }
 }

@@ -8,7 +8,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/nebula
     username: nebula
-    password: nebula
+    password: ${DB_PASSWORD:nebula}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -28,6 +28,10 @@ spring:
       host: localhost
       port: 6379
 
+# Google OAuth
+google:
+  client-id: 721172836983-nstas6fkmqgqs2jrrdkgh2ldi9m116ui.apps.googleusercontent.com
+
 # JWT Configuration
 nebula:
   jwt:
@@ -36,15 +40,21 @@ nebula:
   app:
     base-url: http://localhost:3000
 
-# Stripe Configuration (optional for local dev)
-stripe:
+# Resend Configuration
+resend:
   api:
-    secret-key: 
+    key: ${RESEND_API_KEY:re_4kPvbekH_ALoVvRxpW3aQVrVU9nV6KKoL}
+  from-email: ${RESEND_FROM_EMAIL:onboarding@resend.dev}
+
+# Dodo Payments Configuration
+dodo:
+  api:
+    key: eyfQ8Ui7wZ8XI3MM.ZDuIPY7h9Z1JZfjQVaoiRhdKEM0AMLUTxILQLUgvmfkmanYT
+    base-url: https://test.dodopayments.com
   webhook:
-    secret: 
-  prices:
-    starter: 
-    pro: 
+    secret: dodo-local-secret
+  products:
+    pro: pdt_0NbNc25MioqkvyPw8qbhw
 
 # OpenAPI
 springdoc:

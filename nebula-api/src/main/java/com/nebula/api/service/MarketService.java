@@ -6,10 +6,13 @@ import com.nebula.common.dto.MarketDto;
 import com.nebula.common.dto.MarketSnapshotDto;
 import com.nebula.common.dto.MarketsListResponse;
 import com.nebula.common.dto.MarketWithSnapshotsResponse;
+import com.nebula.common.config.TierConfig;
 import com.nebula.common.entity.Coin;
+import com.nebula.common.entity.Customer;
 import com.nebula.common.entity.Market;
 import com.nebula.common.entity.MarketSnapshot;
 import com.nebula.common.exception.ResourceNotFoundException;
+import com.nebula.common.exception.TierAccessException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +34,7 @@ public class MarketService {
     private final MarketSnapshotRepository snapshotRepository;
 
     public MarketsListResponse getMarkets(
+            Customer customer,
             Coin coin,
             String marketType,
             Boolean resolved,
@@ -38,7 +42,25 @@ public class MarketService {
             Instant startTimeBefore,
             int limit,
             int offset) {
-        
+
+        // Enforce tier-based market history limits
+        if (customer != null) {
+            TierConfig.TierLimits tierLimits = TierConfig.getLimits(customer.getTier());
+            int maxMarkets = tierLimits.getMarketLimit(marketType);
+            if (limit > maxMarkets) limit = maxMarkets;
+            if (offset >= maxMarkets) {
+                return MarketsListResponse.builder()
+                        .markets(List.of())
+                        .total(0)
+                        .limit(limit)
+                        .offset(offset)
+                        .build();
+            }
+            if (offset + limit > maxMarkets) {
+                limit = maxMarkets - offset;
+            }
+        }
+
         Pageable pageable = PageRequest.of(offset / limit, limit);
         Page<Market> page;
         long total;
@@ -75,6 +97,12 @@ public class MarketService {
                 .map(this::toDto)
                 .collect(Collectors.toList());
 
+        // Cap total to tier limit so frontend shows correct pagination
+        if (customer != null) {
+            int maxMarkets = TierConfig.getLimits(customer.getTier()).getMarketLimit(marketType);
+            if (total > maxMarkets) total = maxMarkets;
+        }
+
         return MarketsListResponse.builder()
                 .markets(marketDtos)
                 .total((int) total)
@@ -101,9 +129,26 @@ public class MarketService {
         return toDto(market);
     }
 
-    public MarketWithSnapshotsResponse getMarketWithSnapshots(String slug, int limit, int offset, boolean includeOrderbook) {
+    public MarketWithSnapshotsResponse getMarketWithSnapshots(Customer customer, String slug, int limit, int offset, boolean includeOrderbook) {
         Market market = marketRepository.findBySlug(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("Market", slug));
+
+        // Cap limit to 1000 for all users
+        if (limit > 1000) limit = 1000;
+
+        // Enforce tier-based snapshot limits
+        if (customer != null) {
+            TierConfig.TierLimits tierLimits = TierConfig.getLimits(customer.getTier());
+            int maxSnapshots = tierLimits.getSnapshotLimit(market.getMarketType());
+            if (offset >= maxSnapshots || offset + limit > maxSnapshots) {
+                throw new TierAccessException(
+                        String.format("Your %s plan allows access to the last %d snapshots for %s markets. Upgrade to PRO for unlimited snapshot access.",
+                                customer.getTier().name(), maxSnapshots, market.getMarketType()),
+                        "PRO",
+                        customer.getTier().name());
+            }
+            if (limit > maxSnapshots) limit = maxSnapshots;
+        }
 
         long total = snapshotRepository.countByMarketId(market.getId());
 
@@ -113,6 +158,12 @@ public class MarketService {
         List<MarketSnapshotDto> snapshotDtos = snapshots.stream()
                 .map(s -> toSnapshotDto(s, includeOrderbook))
                 .toList();
+
+        // Cap total to tier limit
+        if (customer != null) {
+            int maxSnapshots = TierConfig.getLimits(customer.getTier()).getSnapshotLimit(market.getMarketType());
+            if (total > maxSnapshots) total = maxSnapshots;
+        }
 
         return MarketWithSnapshotsResponse.builder()
                 .market(toDto(market))
@@ -131,14 +182,14 @@ public class MarketService {
                 .marketType(market.getMarketType())
                 .startTime(market.getStartTime())
                 .endTime(market.getEndTime())
-                .btcPriceStart(market.getBtcPriceStart())
+                .coinPriceStart(market.getCoinPriceStart())
                 .conditionId(market.getConditionId())
                 .clobTokenUp(market.getClobTokenUp())
                 .clobTokenDown(market.getClobTokenDown())
                 .winner(market.getWinner())
                 .finalVolume(market.getFinalVolume())
                 .finalLiquidity(market.getFinalLiquidity())
-                .btcPriceEnd(market.getBtcPriceEnd())
+                .coinPriceEnd(market.getCoinPriceEnd())
                 .resolvedAt(market.getResolvedAt())
                 .createdAt(market.getCreatedAt())
                 .updatedAt(market.getUpdatedAt())
@@ -148,7 +199,7 @@ public class MarketService {
     private MarketSnapshotDto toSnapshotDto(MarketSnapshot snapshot, boolean includeOrderbook) {
         MarketSnapshotDto.MarketSnapshotDtoBuilder builder = MarketSnapshotDto.builder()
                 .time(snapshot.getTime())
-                .btcPrice(snapshot.getBtcPrice())
+                .coinPrice(snapshot.getCoinPrice())
                 .priceUp(snapshot.getPriceUp())
                 .priceDown(snapshot.getPriceDown());
 

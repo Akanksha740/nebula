@@ -75,8 +75,12 @@ public class UsageTrackingService {
 
         long requestsToday = usageRepository.countRequestsSince(customerId, startOfDay);
         long requestsThisMonth = usageRepository.countRequestsSince(customerId, startOfMonth);
+        long successfulRequests = usageRepository.countSuccessfulRequestsSince(customerId, startOfMonth);
+        long rateLimitedRequests = usageRepository.countRateLimitedRequestsSince(customerId, startOfMonth);
         long bytesToday = usageRepository.sumResponseBytesSince(customerId, startOfDay);
         long bytesThisMonth = usageRepository.sumResponseBytesSince(customerId, startOfMonth);
+        long endpointsUsed = usageRepository.countDistinctEndpointsSince(customerId, startOfMonth);
+        double averageLatencyMs = usageRepository.averageResponseTimeSince(customerId, startOfMonth);
 
         long remainingToday = Math.max(0, limits.dailyRequestLimit() - requestsToday);
         double usagePercentage = (double) requestsToday / limits.dailyRequestLimit() * 100;
@@ -84,12 +88,16 @@ public class UsageTrackingService {
         return UsageStatsDto.builder()
                 .requestsToday(requestsToday)
                 .requestsThisMonth(requestsThisMonth)
+                .successfulRequests(successfulRequests)
+                .rateLimitedRequests(rateLimitedRequests)
                 .dailyLimit(limits.dailyRequestLimit())
                 .monthlyLimit((long) limits.dailyRequestLimit() * 30)
                 .remainingToday(remainingToday)
                 .usagePercentage(Math.min(100, usagePercentage))
                 .bytesTransferredToday(bytesToday)
                 .bytesTransferredThisMonth(bytesThisMonth)
+                .endpointsUsed(endpointsUsed)
+                .averageLatencyMs(Math.round(averageLatencyMs * 100.0) / 100.0)
                 .tier(customer.getTier().name())
                 .periodStart(startOfMonth)
                 .periodEnd(endOfMonth)

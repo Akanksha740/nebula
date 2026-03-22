@@ -3,21 +3,19 @@ package com.nebula.api.service;
 import com.nebula.api.repository.CustomerRepository;
 import com.nebula.common.entity.Customer;
 import com.nebula.common.exception.NebulaException;
-import com.stripe.Stripe;
-import com.stripe.exception.StripeException;
-import com.stripe.model.Subscription;
-import com.stripe.model.checkout.Session;
-import com.stripe.param.CustomerCreateParams;
-import com.stripe.param.checkout.SessionCreateParams;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -25,156 +23,180 @@ public class BillingService {
 
     private static final Logger log = LoggerFactory.getLogger(BillingService.class);
     private final CustomerRepository customerRepository;
+    private final StringRedisTemplate redisTemplate;
+    private final RestTemplate restTemplate = new RestTemplate();
 
-    @Value("${stripe.api.secret-key:}")
-    private String stripeSecretKey;
+    @Value("${dodo.api.key:}")
+    private String apiKey;
 
-    @Value("${stripe.prices.starter:}")
-    private String starterPriceId;
+    @Value("${dodo.api.base-url:https://test.dodopayments.com}")
+    private String apiBaseUrl;
 
-    @Value("${stripe.prices.pro:}")
-    private String proPriceId;
+    @Value("${dodo.products.pro:}")
+    private String proProductId;
+
+    @Value("${dodo.webhook.secret:}")
+    private String webhookSecret;
 
     @Value("${nebula.app.base-url:http://localhost:3000}")
     private String appBaseUrl;
 
     @PostConstruct
-    public void init() {
-        if (stripeSecretKey != null && !stripeSecretKey.isBlank()) {
-            Stripe.apiKey = stripeSecretKey;
-        }
+    void logConfig() {
+        boolean live = apiBaseUrl.contains("live");
+        log.info("Billing init: mode={}, product_pro={}, api_key_set={}",
+                live ? "LIVE" : "TEST", proProductId, apiKey != null && !apiKey.isBlank());
     }
 
-    @Transactional
-    public String createCheckoutSession(Customer customer, Customer.SubscriptionTier tier) {
-        validateStripeConfigured();
+    /**
+     * Creates a Dodo subscription for the requested tier and returns the payment link URL.
+     */
+    @SuppressWarnings("unchecked")
+    public String getCheckoutUrl(Customer customer, Customer.SubscriptionTier tier) {
+        String productId = getProductIdForTier(tier);
+        if (productId == null || productId.isBlank()) {
+            throw new NebulaException("Product not configured for tier: " + tier.name(), "BILLING_NOT_CONFIGURED", 503);
+        }
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new NebulaException("Payment system not configured", "BILLING_NOT_CONFIGURED", 503);
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+
+        Map<String, Object> body = Map.of(
+                "product_id", productId,
+                "quantity", 1,
+                "customer", Map.of(
+                        "email", customer.getEmail(),
+                        "name", customer.getCompanyName() != null ? customer.getCompanyName() : customer.getEmail()
+                ),
+                "billing", Map.of("country", "US"),
+                "payment_link", true,
+                "return_url", appBaseUrl + "/dashboard?upgraded=true",
+                "metadata", Map.of(
+                        "nebula_customer_id", customer.getId().toString(),
+                        "tier", tier.name()
+                )
+        );
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
         try {
-            String stripeCustomerId = getOrCreateStripeCustomer(customer);
-            String priceId = getPriceIdForTier(tier);
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                    apiBaseUrl + "/subscriptions", request, Map.class);
 
-            SessionCreateParams params = SessionCreateParams.builder()
-                    .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
-                    .setCustomer(stripeCustomerId)
-                    .setSuccessUrl(appBaseUrl + "/billing/success?session_id={CHECKOUT_SESSION_ID}")
-                    .setCancelUrl(appBaseUrl + "/billing/cancel")
-                    .addLineItem(
-                            SessionCreateParams.LineItem.builder()
-                                    .setPrice(priceId)
-                                    .setQuantity(1L)
-                                    .build()
-                    )
-                    .putMetadata("customer_id", customer.getId().toString())
-                    .putMetadata("tier", tier.name())
-                    .build();
+            Map<String, Object> responseBody = response.getBody();
+            if (responseBody == null || !responseBody.containsKey("payment_link")) {
+                log.error("Dodo API returned no payment_link: {}", responseBody);
+                throw new NebulaException("Failed to create checkout session", "BILLING_ERROR", 502);
+            }
 
-            Session session = Session.create(params);
-            log.info("Created checkout session {} for customer {}", session.getId(), customer.getId());
-            
-            return session.getUrl();
-        } catch (StripeException e) {
-            log.error("Stripe error creating checkout session", e);
-            throw new NebulaException("Failed to create checkout session", "BILLING_ERROR", 500, e);
+            String paymentLink = (String) responseBody.get("payment_link");
+            String subscriptionId = (String) responseBody.get("subscription_id");
+            log.info("Created Dodo subscription {} for customer {} (tier: {})",
+                    subscriptionId, customer.getEmail(), tier);
+
+            return paymentLink;
+        } catch (NebulaException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error creating Dodo subscription: {}", e.getMessage(), e);
+            throw new NebulaException("Payment service unavailable", "BILLING_ERROR", 502);
         }
     }
 
+    /**
+     * Called from webhook after Dodo confirms subscription is active.
+     * Looks up customer by ID first, falls back to email.
+     */
     @Transactional
-    public void handleSubscriptionCreated(String subscriptionId, String customerId) {
+    public void handleSubscriptionActive(String customerId, String customerEmail, String tier, String subscriptionId) {
+        Customer customer = findCustomer(customerId, customerEmail);
+
+        Customer.SubscriptionTier newTier;
         try {
-            Subscription subscription = Subscription.retrieve(subscriptionId);
-            String stripeCustomerId = subscription.getCustomer();
-
-            customerRepository.findByStripeCustomerId(stripeCustomerId)
-                    .ifPresent(customer -> {
-                        Customer.SubscriptionTier tier = determineTierFromSubscription(subscription);
-                        customer.setTier(tier);
-                        customer.setStripeSubscriptionId(subscriptionId);
-                        customerRepository.save(customer);
-                        log.info("Updated customer {} to tier {}", customer.getId(), tier);
-                    });
-        } catch (StripeException e) {
-            log.error("Failed to handle subscription created event", e);
-        }
-    }
-
-    @Transactional
-    public void handleSubscriptionCanceled(String subscriptionId) {
-        customerRepository.findAll().stream()
-                .filter(c -> subscriptionId.equals(c.getStripeSubscriptionId()))
-                .findFirst()
-                .ifPresent(customer -> {
-                    customer.setTier(Customer.SubscriptionTier.FREE);
-                    customer.setStripeSubscriptionId(null);
-                    customerRepository.save(customer);
-                    log.info("Downgraded customer {} to FREE tier", customer.getId());
-                });
-    }
-
-    public Map<String, Object> getSubscriptionDetails(Customer customer) {
-        if (customer.getStripeSubscriptionId() == null) {
-            return Map.of(
-                    "tier", customer.getTier().name(),
-                    "status", "none"
-            );
+            newTier = Customer.SubscriptionTier.valueOf(tier.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new NebulaException("Invalid tier: " + tier, "INVALID_TIER", 400);
         }
 
-        try {
-            Subscription subscription = Subscription.retrieve(customer.getStripeSubscriptionId());
-            return Map.of(
-                    "tier", customer.getTier().name(),
-                    "status", subscription.getStatus(),
-                    "currentPeriodEnd", subscription.getCurrentPeriodEnd(),
-                    "cancelAtPeriodEnd", subscription.getCancelAtPeriodEnd()
-            );
-        } catch (StripeException e) {
-            log.error("Failed to retrieve subscription details", e);
-            return Map.of(
-                    "tier", customer.getTier().name(),
-                    "status", "unknown"
-            );
-        }
-    }
-
-    private String getOrCreateStripeCustomer(Customer customer) throws StripeException {
-        if (customer.getStripeCustomerId() != null) {
-            return customer.getStripeCustomerId();
-        }
-
-        CustomerCreateParams params = CustomerCreateParams.builder()
-                .setEmail(customer.getEmail())
-                .setName(customer.getCompanyName())
-                .putMetadata("nebula_customer_id", customer.getId().toString())
-                .build();
-
-        com.stripe.model.Customer stripeCustomer = com.stripe.model.Customer.create(params);
-        
-        customer.setStripeCustomerId(stripeCustomer.getId());
+        Customer.SubscriptionTier previousTier = customer.getTier();
+        customer.setTier(newTier);
+        customer.setPaymentSubscriptionId(subscriptionId);
         customerRepository.save(customer);
 
-        return stripeCustomer.getId();
+        clearRateLimitCache(customer.getId());
+
+        log.info("Upgraded customer {} from {} to {} (subscription: {})",
+                customer.getEmail(), previousTier, newTier, subscriptionId);
     }
 
-    private String getPriceIdForTier(Customer.SubscriptionTier tier) {
+    /**
+     * Called from webhook when a subscription is cancelled.
+     * Looks up customer by ID first, falls back to email.
+     */
+    @Transactional
+    public void handleSubscriptionCancelled(String customerId, String customerEmail) {
+        Customer customer = findCustomer(customerId, customerEmail);
+
+        customer.setTier(Customer.SubscriptionTier.STARTER);
+        customer.setPaymentSubscriptionId(null);
+        customerRepository.save(customer);
+
+        clearRateLimitCache(customer.getId());
+
+        log.info("Downgraded customer {} to STARTER tier (subscription cancelled)", customer.getEmail());
+    }
+
+    public String getWebhookSecret() {
+        return webhookSecret;
+    }
+
+    /**
+     * Finds customer by ID first, falls back to email lookup.
+     */
+    private Customer findCustomer(String customerId, String customerEmail) {
+        // Try by ID first
+        if (customerId != null && !customerId.isBlank()) {
+            try {
+                var found = customerRepository.findById(java.util.UUID.fromString(customerId));
+                if (found.isPresent()) return found.get();
+                log.warn("Customer not found by ID {}, trying email fallback", customerId);
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid customer ID format: {}", customerId);
+            }
+        }
+
+        // Fallback to email
+        if (customerEmail != null && !customerEmail.isBlank()) {
+            return customerRepository.findByEmail(customerEmail)
+                    .orElseThrow(() -> new NebulaException(
+                            "Customer not found by ID=" + customerId + " or email=" + customerEmail,
+                            "CUSTOMER_NOT_FOUND", 404));
+        }
+
+        throw new NebulaException("Customer not found: " + customerId, "CUSTOMER_NOT_FOUND", 404);
+    }
+
+    private String getProductIdForTier(Customer.SubscriptionTier tier) {
         return switch (tier) {
-            case STARTER -> starterPriceId;
-            case PRO -> proPriceId;
-            default -> throw new NebulaException("Invalid tier for subscription", "INVALID_TIER", 400);
+            case PRO -> proProductId;
+            default -> throw new NebulaException("Upgrade not available for tier: " + tier.name(), "INVALID_TIER", 400);
         };
     }
 
-    private Customer.SubscriptionTier determineTierFromSubscription(Subscription subscription) {
-        String priceId = subscription.getItems().getData().get(0).getPrice().getId();
-        if (priceId.equals(starterPriceId)) {
-            return Customer.SubscriptionTier.STARTER;
-        } else if (priceId.equals(proPriceId)) {
-            return Customer.SubscriptionTier.PRO;
-        }
-        return Customer.SubscriptionTier.FREE;
-    }
-
-    private void validateStripeConfigured() {
-        if (stripeSecretKey == null || stripeSecretKey.isBlank()) {
-            throw new NebulaException("Billing not configured", "BILLING_NOT_CONFIGURED", 503);
+    private void clearRateLimitCache(java.util.UUID customerId) {
+        try {
+            String pattern = "rate_limit:" + customerId + ":*";
+            Set<String> keys = redisTemplate.keys(pattern);
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+                log.debug("Cleared {} rate-limit cache keys for customer {}", keys.size(), customerId);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to clear rate-limit cache for customer {}: {}", customerId, e.getMessage());
         }
     }
 }

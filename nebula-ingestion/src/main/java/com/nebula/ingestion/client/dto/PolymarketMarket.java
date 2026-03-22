@@ -323,7 +323,7 @@ public class PolymarketMarket {
         return null;
     }
 
-    public BigDecimal getBtcPriceStart() {
+    public BigDecimal getCoinPriceStart() {
         if (events != null && !events.isEmpty()) {
             Event e = events.get(0);
             if (e.getEventMetadata() != null) {

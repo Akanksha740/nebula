@@ -53,8 +53,14 @@ polymarket:
   clob:
     base-url: https://clob.polymarket.com
 
+# Binance API configuration
+binance:
+  api:
+    base-url: https://api.binance.com
+
 # Nebula configuration
 nebula:
+  api-key: ${INGESTION_API_KEY:changeme}
   snapshot:
     interval-ms: ${SNAPSHOT_INTERVAL_MS:1000}  # Default: 1 second
     log-each-tick: ${SNAPSHOT_LOG_TICK:false}

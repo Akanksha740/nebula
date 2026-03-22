@@ -32,6 +32,10 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
 
+# Google OAuth
+google:
+  client-id: 721172836983-nstas6fkmqgqs2jrrdkgh2ldi9m116ui.apps.googleusercontent.com
+
 nebula:
   jwt:
     secret: ${JWT_SECRET}
@@ -39,14 +43,15 @@ nebula:
   app:
     base-url: ${APP_BASE_URL}
 
-stripe:
+# Dodo Payments Configuration
+dodo:
   api:
-    secret-key: ${STRIPE_SECRET_KEY:}
+    key: WE6JCI_RQKjyATqX.mWlzcnePQyOS-qTCe8WrZlQZys5shM7s5VjwZQYm9MKxLO9c
+    base-url: https://live.dodopayments.com
   webhook:
-    secret: ${STRIPE_WEBHOOK_SECRET:}
-  prices:
-    starter: ${STRIPE_PRICE_STARTER:}
-    pro: ${STRIPE_PRICE_PRO:}
+    secret: ${DODO_WEBHOOK_SECRET:}
+  products:
+    pro: pdt_0NbNyvfrVtVYJsvAZriDh
 
 management:
   endpoints:

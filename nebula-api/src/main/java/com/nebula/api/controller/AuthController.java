@@ -8,6 +8,7 @@ import com.nebula.common.dto.request.RegisterRequest;
 import com.nebula.common.dto.response.ApiResponse;
 import com.nebula.common.dto.response.AuthResponse;
 import com.nebula.common.entity.Customer;
+import com.nebula.common.exception.UnauthorizedException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -57,6 +58,23 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(null, "Verification email sent. Please check your inbox."));
     }
 
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Request password reset email")
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(@RequestBody Map<String, String> request) {
+        String email = request.get("email");
+        authService.forgotPassword(email);
+        return ResponseEntity.ok(ApiResponse.success(null, "If an account exists with this email, a reset link has been sent."));
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Reset password using token")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(@RequestBody Map<String, String> request) {
+        String token = request.get("token");
+        String newPassword = request.get("newPassword");
+        authService.resetPassword(token, newPassword);
+        return ResponseEntity.ok(ApiResponse.success(null, "Password reset successfully. You can now log in."));
+    }
+
     @PostMapping("/google")
     @Operation(summary = "Authenticate with Google")
     public ResponseEntity<ApiResponse<AuthResponse>> googleAuth(
@@ -69,6 +87,9 @@ public class AuthController {
     @Operation(summary = "Get current user details")
     public ResponseEntity<ApiResponse<CustomerDto>> getCurrentUser(
             @AuthenticationPrincipal Customer customer) {
+        if (customer == null) {
+            throw new UnauthorizedException("Authentication required");
+        }
         CustomerDto dto = authService.getCurrentCustomer(customer);
         return ResponseEntity.ok(ApiResponse.success(dto));
     }

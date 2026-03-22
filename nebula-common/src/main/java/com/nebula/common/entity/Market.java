@@ -59,11 +59,11 @@ public class Market {
     @Column(name = "end_time")
     private Instant endTime;
 
-    @Column(name = "btc_price_start", precision = 20, scale = 8)
-    private BigDecimal btcPriceStart;
+    @Column(name = "coin_price_start", precision = 20, scale = 8)
+    private BigDecimal coinPriceStart;
 
-    @Column(name = "btc_price_end", precision = 20, scale = 8)
-    private BigDecimal btcPriceEnd;
+    @Column(name = "coin_price_end", precision = 20, scale = 8)
+    private BigDecimal coinPriceEnd;
 
     @Column(length = 10)
     private String winner;

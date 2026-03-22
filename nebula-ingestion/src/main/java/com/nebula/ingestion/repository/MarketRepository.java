@@ -2,7 +2,7 @@ package com.nebula.ingestion.repository;
 
 import com.nebula.common.entity.Market;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
+
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -20,11 +20,9 @@ public interface MarketRepository extends JpaRepository<Market, UUID> {
     List<Market> findByActiveTrue();
 
     @Query("SELECT m FROM Market m WHERE m.active = true AND m.startTime <= :now AND m.endTime >= :now")
-    List<Market> findMarketsToSnapshot(@Param("now") Instant now);
+    List<Market> findCurrentlyActiveMarkets(@Param("now") Instant now);
 
-    @Modifying
-    @Query("UPDATE Market m SET m.active = false WHERE m.active = true AND m.endTime < :now")
-    int deactivateExpiredMarkets(@Param("now") Instant now);
+    @Query("SELECT m FROM Market m WHERE m.active = true AND m.endTime < :now")
+    List<Market> findExpiredActiveMarkets(@Param("now") Instant now);
 
-    boolean existsBySlug(String slug);
 }

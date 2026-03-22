@@ -4,12 +4,14 @@ A platform for capturing, storing, and monetizing Polymarket historical data thr
 
 ## Features
 
-- **Data Ingestion**: Automatically captures Polymarket data every minute
+- **Multi-Coin Support**: Tracks BTC and ETH markets (SOL coming soon)
+- **Data Ingestion**: Automatically captures Polymarket data at sub-second intervals
 - **30-Day Retention**: Stores historical snapshots with automatic cleanup
 - **REST API**: Full-featured API with pagination, search, and filtering
 - **Authentication**: API key and JWT-based authentication
 - **Rate Limiting**: Tier-based rate limiting with Redis
-- **Billing Integration**: Stripe integration for subscriptions
+- **Tiered Coin Access**: ETH data restricted to PRO and ENTERPRISE tiers (SOL coming soon)
+- **Billing Integration**: Dodo Payments integration for subscriptions
 - **Docker Ready**: Complete Docker Compose setup for easy deployment
 
 ## Architecture
@@ -106,7 +108,7 @@ Once running, access Swagger UI at: `http://localhost:8080/swagger-ui.html`
 
 **Option 1: API Key**
 ```bash
-curl -H "X-API-Key: nb_live_xxx" http://localhost:8080/v1/markets
+curl -H "X-API-Key: nb_live_xxx" "http://localhost:8080/v1/markets?coin=BTC"
 ```
 
 **Option 2: JWT Token**
@@ -117,7 +119,7 @@ curl -X POST http://localhost:8080/v1/auth/login \
   -d '{"email": "user@example.com", "password": "password"}'
 
 # Use token
-curl -H "Authorization: Bearer <token>" http://localhost:8080/v1/markets
+curl -H "Authorization: Bearer <token>" "http://localhost:8080/v1/markets?coin=ETH&limit=10"
 ```
 
 ### Key Endpoints
@@ -126,21 +128,67 @@ curl -H "Authorization: Bearer <token>" http://localhost:8080/v1/markets
 |----------|-------------|
 | `POST /v1/auth/register` | Register new account |
 | `POST /v1/auth/login` | Login |
-| `GET /v1/markets` | List all markets |
-| `GET /v1/markets/{id}` | Get market details |
-| `GET /v1/markets/{id}/snapshots` | Get historical snapshots |
+| `GET /v1/markets?coin=BTC` | List markets for a coin |
+| `GET /v1/markets/{slug}` | Get market details (coin derived from slug) |
+| `GET /v1/markets/{slug}/snapshots` | Get historical snapshots (coin derived from slug) |
 | `GET /v1/account/api-keys` | List API keys |
 | `POST /v1/account/api-keys` | Create API key |
 | `GET /v1/account/usage` | Get usage statistics |
 
+### Supported Coins
+
+| Coin | Slug Prefixes | Tier Required |
+|------|--------------|---------------|
+| BTC | `btc-*`, `bitcoin-*` | STARTER (all tiers) |
+| ETH | `eth-*`, `ethereum-*` | PRO, ENTERPRISE |
+| SOL | `sol-*`, `solana-*` | PRO, ENTERPRISE (coming soon) |
+
+### Market Types & Slug Patterns
+
+Each coin has 5 market intervals. Examples for ETH:
+
+| Type | Slug Pattern | Example |
+|------|-------------|---------|
+| 5m | `eth-updown-5m-{epoch}` | `eth-updown-5m-1774803000` |
+| 15m | `eth-updown-15m-{epoch}` | `eth-updown-15m-1774802700` |
+| 1h | `ethereum-up-or-down-{month}-{day}-{year}-{hour}{am\|pm}-et` | `ethereum-up-or-down-march-29-2026-12pm-et` |
+| 4h | `eth-updown-4h-{epoch}` | `eth-updown-4h-1774800000` |
+| 24h | `ethereum-up-or-down-on-{month}-{day}-{year}` | `ethereum-up-or-down-on-march-29-2026` |
+
+BTC follows the same patterns with `btc-*` / `bitcoin-*` prefixes.
+
+### Market List Query Parameters
+
+```
+GET /v1/markets?coin=ETH&market_type=5m&resolved=false&limit=50&offset=0&start_time=...&end_time=...
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `coin` | Yes | `BTC` or `ETH` (SOL coming soon) |
+| `limit` | No | Results per page (1-100, default 50) |
+| `offset` | No | Pagination offset (default 0) |
+| `market_type` | No | Filter: `5m`, `15m`, `1h`, `4h`, `24h` |
+| `resolved` | No | Filter: `true` or `false` |
+| `start_time` | No | Filter markets after this time (epoch ms or ISO8601) |
+| `end_time` | No | Filter markets before this time (epoch ms or ISO8601) |
+
+### Market Detail & Snapshots
+
+```
+GET /v1/markets/{slug}
+GET /v1/markets/{slug}/snapshots?limit=100&offset=0&include_orderbook=false
+```
+
+No `coin` parameter needed -- the coin is derived from the slug automatically.
+
 ## Subscription Tiers
 
-| Tier | Daily Limit | Data Access | Price |
-|------|-------------|-------------|-------|
-| FREE | 100 requests | 7 days | $0/mo |
-| STARTER | 10,000 requests | 30 days | $29/mo |
-| PRO | 100,000 requests | 30 days | $99/mo |
-| ENTERPRISE | Unlimited | 30 days | Custom |
+| Tier | Daily Limit | Coins | Data Retention | Price |
+|------|-------------|-------|----------------|-------|
+| STARTER | 1,000 requests | BTC only | 30 days | $0/mo |
+| PRO | 50,000 requests | BTC, ETH | 365 days | $11/mo |
+| ENTERPRISE | Unlimited | BTC, ETH | 365 days | Custom |
 
 ## Configuration
 

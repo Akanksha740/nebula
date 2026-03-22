@@ -29,8 +29,8 @@ public class MarketDto {
     @JsonProperty("end_time")
     private Instant endTime;
 
-    @JsonProperty("btc_price_start")
-    private BigDecimal btcPriceStart;
+    @JsonProperty("coin_price_start")
+    private BigDecimal coinPriceStart;
 
     @JsonProperty("condition_id")
     private String conditionId;
@@ -49,8 +49,8 @@ public class MarketDto {
     @JsonProperty("final_liquidity")
     private BigDecimal finalLiquidity;
 
-    @JsonProperty("btc_price_end")
-    private BigDecimal btcPriceEnd;
+    @JsonProperty("coin_price_end")
+    private BigDecimal coinPriceEnd;
 
     @JsonProperty("resolved_at")
     private Instant resolvedAt;

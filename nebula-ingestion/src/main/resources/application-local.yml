@@ -45,6 +45,7 @@ polymarket:
 
 # Nebula configuration
 nebula:
+  api-key: nebula-local-key
   snapshot:
     interval-ms: 500       # Snapshot interval in milliseconds (500 = 2 per second)
     log-each-tick: false   # Set to true to log each snapshot tick

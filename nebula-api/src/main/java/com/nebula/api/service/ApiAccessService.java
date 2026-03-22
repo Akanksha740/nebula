@@ -7,6 +7,7 @@ import com.nebula.common.entity.Customer;
 import com.nebula.common.entity.Customer.SubscriptionTier;
 import com.nebula.common.exception.TierAccessException;
 import com.nebula.common.exception.UnauthorizedException;
+import com.nebula.common.entity.Coin;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +31,11 @@ public class ApiAccessService {
         "/v1/auth/register",
         "/v1/auth/google",
         "/v1/auth/refresh",
-        "/v1/webhooks/stripe",
+        "/v1/auth/verify-email",
+        "/v1/auth/resend-verification",
+        "/v1/auth/forgot-password",
+        "/v1/auth/reset-password",
+        "/v1/webhook/dodo",
         "/v1/admin",
         "/swagger-ui",
         "/v3/api-docs"
@@ -46,22 +51,52 @@ public class ApiAccessService {
         }
 
         if (requiresApiKey(endpoint)) {
-            if (apiKey == null) {
+            // Allow JWT-authenticated users (dashboard) without API key
+            if (customer != null && apiKey == null) {
+                // JWT user — skip API key check
+            } else if (apiKey == null) {
                 throw new UnauthorizedException("API key required. Include your API key in the X-API-Key header.");
-            }
-            if (customer == null) {
+            } else if (customer == null) {
                 throw new UnauthorizedException("Invalid API key");
             }
         }
 
         if (customer != null) {
-            checkRateLimit(customer);
+            if (isRateLimitedEndpoint(endpoint)) {
+                checkRateLimit(customer);
+            }
             checkEndpointAccess(customer, endpoint);
         }
     }
 
     private boolean requiresApiKey(String endpoint) {
         return endpoint.startsWith("/v1/markets");
+    }
+
+    private boolean isRateLimitedEndpoint(String endpoint) {
+        return endpoint.startsWith("/v1/markets");
+    }
+
+    /**
+     * Checks if the customer's tier allows access to the given coin.
+     * BTC is available to all tiers. ETH (and future coins like SOL) require PRO or higher.
+     */
+    public void checkCoinAccess(Customer customer, Coin coin) {
+        if (coin == Coin.BTC) {
+            return;
+        }
+        if (customer == null) {
+            throw new TierAccessException(
+                    String.format("%s market data requires a PRO or ENTERPRISE subscription.", coin.name()),
+                    "PRO", "NONE");
+        }
+        if (!hasTierAccess(customer.getTier(), SubscriptionTier.PRO)) {
+            throw new TierAccessException(
+                    String.format("%s market data requires a PRO or ENTERPRISE subscription. Upgrade to access %s markets.",
+                            coin.name(), coin.name()),
+                    "PRO",
+                    customer.getTier().name());
+        }
     }
 
     public void validateDataAccess(Customer customer, Instant requestedDate) {
@@ -101,7 +136,7 @@ public class ApiAccessService {
     }
 
     public TierLimits getLimits(Customer customer) {
-        return TierConfig.getLimits(customer != null ? customer.getTier() : SubscriptionTier.FREE);
+        return TierConfig.getLimits(customer != null ? customer.getTier() : SubscriptionTier.STARTER);
     }
 
     public long getRemainingRequests(Customer customer) {
@@ -147,15 +182,14 @@ public class ApiAccessService {
 
     private String getNextTierForDataAccess(SubscriptionTier currentTier) {
         return switch (currentTier) {
-            case FREE -> "STARTER";
-            case STARTER, PRO -> "PRO";
+            case STARTER -> "PRO";
+            case PRO -> "ENTERPRISE";
             case ENTERPRISE -> "ENTERPRISE";
         };
     }
 
     private String getNextTierForResolution(SubscriptionTier currentTier) {
         return switch (currentTier) {
-            case FREE -> "STARTER";
             case STARTER -> "PRO";
             case PRO, ENTERPRISE -> "ENTERPRISE";
         };

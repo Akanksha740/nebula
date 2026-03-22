@@ -11,7 +11,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "customers", indexes = {
     @Index(name = "idx_customers_email", columnList = "email", unique = true),
-    @Index(name = "idx_customers_stripe_id", columnList = "stripeCustomerId")
+    @Index(name = "idx_customers_payment_id", columnList = "paymentCustomerId")
 })
 @Getter
 @Setter
@@ -36,13 +36,13 @@ public class Customer {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
-    private SubscriptionTier tier = SubscriptionTier.FREE;
+    private SubscriptionTier tier = SubscriptionTier.STARTER;
 
-    @Column(name = "stripe_customer_id")
-    private String stripeCustomerId;
+    @Column(name = "payment_customer_id")
+    private String paymentCustomerId;
 
-    @Column(name = "stripe_subscription_id")
-    private String stripeSubscriptionId;
+    @Column(name = "payment_subscription_id")
+    private String paymentSubscriptionId;
 
     @Column(name = "is_active", nullable = false)
     @Builder.Default
@@ -58,7 +58,13 @@ public class Customer {
     @Column(name = "email_verification_token_expiry")
     private Instant emailVerificationTokenExpiry;
 
-    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Column(name = "password_reset_token")
+    private String passwordResetToken;
+
+    @Column(name = "password_reset_token_expiry")
+    private Instant passwordResetTokenExpiry;
+
+    @OneToMany(mappedBy = "customer", fetch = FetchType.LAZY)
     @Builder.Default
     private List<ApiKey> apiKeys = new ArrayList<>();
 
@@ -80,7 +86,6 @@ public class Customer {
     }
 
     public enum SubscriptionTier {
-        FREE,
         STARTER,
         PRO,
         ENTERPRISE

@@ -36,8 +36,8 @@ public class MarketSnapshot {
     @Column(nullable = false)
     private Instant time;
 
-    @Column(name = "btc_price", precision = 20, scale = 8)
-    private BigDecimal btcPrice;
+    @Column(name = "coin_price", precision = 20, scale = 8)
+    private BigDecimal coinPrice;
 
     @Column(name = "price_up", precision = 10, scale = 6)
     private BigDecimal priceUp;

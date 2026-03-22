@@ -17,8 +17,8 @@ public class MarketSnapshotDto {
 
     private Instant time;
 
-    @JsonProperty("btc_price")
-    private BigDecimal btcPrice;
+    @JsonProperty("coin_price")
+    private BigDecimal coinPrice;
 
     @JsonProperty("price_up")
     private BigDecimal priceUp;

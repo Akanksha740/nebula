@@ -10,6 +10,8 @@ import java.time.Instant;
 @Builder
 public class UsageStatsDto {
     private long totalRequests;
+    private long successfulRequests;
+    private long rateLimitedRequests;
     private long requestsToday;
     private long requestsThisMonth;
     private long dailyLimit;
@@ -18,6 +20,8 @@ public class UsageStatsDto {
     private double usagePercentage;
     private long bytesTransferredToday;
     private long bytesTransferredThisMonth;
+    private long endpointsUsed;
+    private double averageLatencyMs;
     private String tier;
     private Instant periodStart;
     private Instant periodEnd;

@@ -70,22 +70,23 @@ public class ApiAccessFilter extends OncePerRequestFilter {
         }
     }
 
-    private void recordUsage(AuthContext authContext, HttpServletRequest request, 
+    private void recordUsage(AuthContext authContext, HttpServletRequest request,
                             ContentCachingResponseWrapper response, Instant startTime) {
-        if (authContext.customer() == null || authContext.apiKey() == null) {
+        if (authContext.customer() == null) {
             return;
         }
-        
+
         if (shouldSkipUsageTracking(request.getRequestURI())) {
             return;
         }
 
         int responseTimeMs = (int) java.time.Duration.between(startTime, Instant.now()).toMillis();
         long requestBytes = request.getContentLengthLong() > 0 ? request.getContentLengthLong() : 0;
+        java.util.UUID apiKeyId = authContext.apiKey() != null ? authContext.apiKey().getId() : null;
 
         usageTrackingService.trackRequest(
                 authContext.customer().getId(),
-                authContext.apiKey().getId(),
+                apiKeyId,
                 request.getRequestURI(),
                 request.getMethod(),
                 response.getStatus(),
@@ -97,9 +98,9 @@ public class ApiAccessFilter extends OncePerRequestFilter {
         );
     }
 
-    private void recordUsage(AuthContext authContext, HttpServletRequest request, 
+    private void recordUsage(AuthContext authContext, HttpServletRequest request,
                             int statusCode, Instant startTime) {
-        if (authContext.customer() == null || authContext.apiKey() == null) {
+        if (authContext.customer() == null) {
             return;
         }
 
@@ -109,10 +110,11 @@ public class ApiAccessFilter extends OncePerRequestFilter {
 
         int responseTimeMs = (int) java.time.Duration.between(startTime, Instant.now()).toMillis();
         long requestBytes = request.getContentLengthLong() > 0 ? request.getContentLengthLong() : 0;
+        java.util.UUID apiKeyId = authContext.apiKey() != null ? authContext.apiKey().getId() : null;
 
         usageTrackingService.trackRequest(
                 authContext.customer().getId(),
-                authContext.apiKey().getId(),
+                apiKeyId,
                 request.getRequestURI(),
                 request.getMethod(),
                 statusCode,
@@ -164,8 +166,9 @@ public class ApiAccessFilter extends OncePerRequestFilter {
             long remaining = apiAccessService.getRemainingRequests(customer);
             long limit = limits.dailyRequestLimit();
 
-            response.setHeader("X-RateLimit-Limit", String.valueOf(limit));
-            response.setHeader("X-RateLimit-Remaining", String.valueOf(remaining));
+            response.setHeader("X-RateLimit-Limit-Day", String.valueOf(limit));
+            response.setHeader("X-RateLimit-Remaining-Day", String.valueOf(remaining));
+            response.setHeader("X-RateLimit-Limit-Minute", String.valueOf(limits.minuteRequestLimit()));
             response.setHeader("X-RateLimit-Reset", getResetTime());
             response.setHeader("X-Tier", customer.getTier().name());
         } catch (Exception e) {

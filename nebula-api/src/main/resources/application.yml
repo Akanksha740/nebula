@@ -32,6 +32,10 @@ spring:
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
 
+# Google OAuth
+google:
+  client-id: ${GOOGLE_CLIENT_ID:}
+
 # JWT Configuration
 nebula:
   jwt:
@@ -48,15 +52,15 @@ resend:
     key: ${RESEND_API_KEY:}
   from-email: ${RESEND_FROM_EMAIL:noreply@yourdomain.com}
 
-# Stripe Configuration
-stripe:
+# Dodo Payments Configuration
+dodo:
   api:
-    secret-key: ${STRIPE_SECRET_KEY:}
+    key: ${DODO_API_KEY:}
+    base-url: ${DODO_API_BASE_URL:https://test.dodopayments.com}
   webhook:
-    secret: ${STRIPE_WEBHOOK_SECRET:}
-  prices:
-    starter: ${STRIPE_PRICE_STARTER:}
-    pro: ${STRIPE_PRICE_PRO:}
+    secret: ${DODO_WEBHOOK_SECRET:}
+  products:
+    pro: ${DODO_PRODUCT_PRO:}
 
 # Actuator
 management:

@@ -3,6 +3,7 @@ package com.nebula.ingestion.service;
 import com.nebula.common.entity.Coin;
 import com.nebula.common.entity.Market;
 import com.nebula.common.entity.MarketSnapshot;
+import com.nebula.ingestion.client.BinanceClient;
 import com.nebula.ingestion.client.ClobClient;
 import com.nebula.ingestion.client.PolymarketClient;
 import com.nebula.ingestion.client.dto.OrderbookResponse;
@@ -14,8 +15,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.nebula.ingestion.util.SlugGenerator;
+
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +31,7 @@ public class BtcMarketIngestionService {
 
     private final PolymarketClient polymarketClient;
     private final ClobClient clobClient;
+    private final BinanceClient binanceClient;
     private final MarketRepository marketRepository;
     private final MarketSnapshotRepository snapshotRepository;
 
@@ -71,7 +77,7 @@ public class BtcMarketIngestionService {
                             .marketType(pm.getMarketTypeResolved())
                             .startTime(pm.getEventStartTime())
                             .endTime(pm.getEndDate())
-                            .btcPriceStart(pm.getBtcPriceStart())
+                            .coinPriceStart(pm.getCoinPriceStart())
                             .clobTokenUp(cleanTokenId(pm.getClobTokenUp()))
                             .clobTokenDown(cleanTokenId(pm.getClobTokenDown()))
                             .build();
@@ -96,50 +102,103 @@ public class BtcMarketIngestionService {
     }
 
     /**
-     * Take snapshots of markets within their active time window
+     * Generate slugs for all market types based on current UTC time,
+     * ensure each market exists in DB, and take a snapshot.
      */
     @Transactional
     public void snapshotActiveMarkets() {
-        Instant now = Instant.now();
-        List<Market> markets = marketRepository.findMarketsToSnapshot(now);
-        
-        if (markets.isEmpty()) {
-            return;
-        }
+        List<String> slugs = SlugGenerator.generateCurrentSlugs();
+
+        // Fetch coin prices once per snapshot tick (one call per coin, not per market)
+        Map<Coin, BigDecimal> coinPrices = fetchAllCoinPrices();
 
         int snapshotCount = 0;
-        for (Market market : markets) {
+        for (String slug : slugs) {
             try {
-                fetchAndSaveSnapshot(market);
-                snapshotCount++;
+                Market market = findOrCreateMarket(slug);
+                if (market != null && market.getActive()) {
+                    BigDecimal coinPrice = coinPrices.get(market.getCoin());
+                    fetchAndSaveSnapshot(market, coinPrice);
+                    snapshotCount++;
+                }
             } catch (Exception e) {
-                log.error("Failed to snapshot market {}: {}", market.getSlug(), e.getMessage());
+                log.error("Failed to snapshot market {}: {}", slug, e.getMessage());
             }
         }
-        
+
         if (snapshotCount > 0) {
-            log.info("Took {} snapshots", snapshotCount);
+            log.debug("Took {} snapshots for runtime slugs", snapshotCount);
+        }
+    }
+
+    /**
+     * Look up a market by slug; if it doesn't exist, fetch from Polymarket and persist it.
+     * Returns null if the market cannot be found on Polymarket either.
+     */
+    private Market findOrCreateMarket(String slug) {
+        Market existing = marketRepository.findBySlug(slug).orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+
+        try {
+            PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug)
+                    .block(Duration.ofSeconds(30));
+
+            if (pm == null) {
+                log.debug("Market not found on Polymarket for slug: {}", slug);
+                return null;
+            }
+
+            Coin coin = Coin.fromSlug(slug);
+            if (coin == null) {
+                log.warn("Could not determine coin from slug: {}", slug);
+                return null;
+            }
+
+            Market market = Market.builder()
+                    .slug(slug)
+                    .coin(coin)
+                    .active(true)
+                    .resolved(false)
+                    .marketId(pm.getId())
+                    .eventId(pm.getEventId())
+                    .conditionId(pm.getConditionId())
+                    .marketType(pm.getMarketTypeResolved())
+                    .startTime(pm.getEventStartTime())
+                    .endTime(pm.getEndDate())
+                    .coinPriceStart(pm.getCoinPriceStart())
+                    .clobTokenUp(cleanTokenId(pm.getClobTokenUp()))
+                    .clobTokenDown(cleanTokenId(pm.getClobTokenDown()))
+                    .build();
+
+            market = marketRepository.save(market);
+            log.info("Auto-created market from runtime slug: {} (type: {})", slug, pm.getMarketTypeResolved());
+            return market;
+        } catch (Exception e) {
+            log.debug("Could not fetch/create market for slug {}: {}", slug, e.getMessage());
+            return null;
         }
     }
 
     /**
      * Fetch market data and save snapshot
      */
-    private void fetchAndSaveSnapshot(Market market) {
+    private void fetchAndSaveSnapshot(Market market, BigDecimal coinPrice) {
         String slug = market.getSlug();
-        
+
         try {
             PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug)
                 .block(Duration.ofSeconds(30));
-            
+
             if (pm == null) {
                 log.warn("Market {} not found", slug);
                 return;
             }
-            
+
             // Update market info (but NOT start_time and end_time)
             updateMarketFromPolymarket(market, pm);
-            
+
             // Check if resolved
             boolean isResolved = isMarketResolved(pm);
             if (isResolved && !market.getResolved()) {
@@ -147,27 +206,27 @@ public class BtcMarketIngestionService {
                 market.setResolved(true);
                 market.setResolvedAt(Instant.now());
                 market.setWinner(pm.getWinner());
-                market.setBtcPriceEnd(pm.getBtcPriceStart());
+                market.setCoinPriceEnd(pm.getCoinPriceStart());
                 market.setFinalVolume(pm.getVolume());
                 market.setFinalLiquidity(pm.getLiquidity());
                 log.info("Market {} is RESOLVED", slug);
             }
-            
+
             marketRepository.save(market);
-            
+
             // Fetch both orderbooks in a single API call
             List<OrderbookResponse> orderbooks = clobClient.fetchOrderbooks(
                     market.getClobTokenUp(), market.getClobTokenDown())
                     .block(Duration.ofSeconds(10));
-            
+
             Map<String, Object> orderbookUp = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenUp());
             Map<String, Object> orderbookDown = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenDown());
-            
+
             // Create snapshot
             MarketSnapshot snapshot = MarketSnapshot.builder()
                     .market(market)
                     .time(Instant.now())
-                    .btcPrice(pm.getBtcPriceStart())
+                    .coinPrice(coinPrice)
                     .priceUp(pm.getPriceUp())
                     .priceDown(pm.getPriceDown())
                     .volume(pm.getVolume())
@@ -218,9 +277,33 @@ public class BtcMarketIngestionService {
             market.setMarketType(pm.getMarketTypeResolved());
         }
         // NOTE: start_time and end_time are NOT updated here - only set during ingestion
-        if (market.getBtcPriceStart() == null) {
-            market.setBtcPriceStart(pm.getBtcPriceStart());
+        if (market.getCoinPriceStart() == null) {
+            market.setCoinPriceStart(pm.getCoinPriceStart());
         }
+    }
+
+    /**
+     * Fetch prices for all active coins in a single pass (one Binance call per coin).
+     */
+    private Map<Coin, BigDecimal> fetchAllCoinPrices() {
+        Map<Coin, BigDecimal> prices = new EnumMap<>(Coin.class);
+        BigDecimal btcPrice = binanceClient.fetchBtcPrice().block(Duration.ofSeconds(5));
+        BigDecimal ethPrice = binanceClient.fetchEthPrice().block(Duration.ofSeconds(5));
+        prices.put(Coin.BTC, btcPrice);
+        prices.put(Coin.ETH, ethPrice);
+        log.info("Binance prices - BTC: {}, ETH: {}", btcPrice, ethPrice);
+        return prices;
+    }
+
+    /**
+     * Fetch the appropriate coin price from Binance based on the market's coin type.
+     * Used by deactivateExpiredMarkets where batch fetching isn't practical.
+     */
+    private BigDecimal fetchCoinPrice(Market market) {
+        if (market.getCoin() == Coin.ETH) {
+            return binanceClient.fetchEthPrice().block(Duration.ofSeconds(5));
+        }
+        return binanceClient.fetchBtcPrice().block(Duration.ofSeconds(5));
     }
 
     private String cleanTokenId(String tokenId) {
@@ -247,21 +330,48 @@ public class BtcMarketIngestionService {
     }
 
     public int getActiveMarketCount() {
-        return marketRepository.findByActiveTrue().size();
+        return marketRepository.findCurrentlyActiveMarkets(Instant.now()).size();
     }
 
     public List<String> getActiveMarketSlugs() {
-        return marketRepository.findByActiveTrue().stream()
+        return marketRepository.findCurrentlyActiveMarkets(Instant.now()).stream()
                 .map(Market::getSlug)
                 .toList();
     }
 
     @Transactional
     public int deactivateExpiredMarkets() {
-        int count = marketRepository.deactivateExpiredMarkets(Instant.now());
-        if (count > 0) {
-            log.info("Deactivated {} expired markets", count);
+        List<Market> expiredMarkets = marketRepository.findExpiredActiveMarkets(Instant.now());
+
+        for (Market market : expiredMarkets) {
+            try {
+                PolymarketMarket pm = polymarketClient.fetchMarketBySlug(market.getSlug())
+                        .block(Duration.ofSeconds(30));
+
+                if (pm != null) {
+                    BigDecimal coinPriceEnd = fetchCoinPrice(market);
+
+                    // Only update resolution fields - not identifiers or timestamps
+                    market.setResolved(true);
+                    market.setResolvedAt(Instant.now());
+                    market.setWinner(pm.getWinner());
+                    market.setCoinPriceEnd(coinPriceEnd);
+                    market.setFinalVolume(pm.getVolume());
+                    market.setFinalLiquidity(pm.getLiquidity());
+                    log.info("Updated expired market {} - winner: {}, coinPriceEnd: {}, volume: {}, liquidity: {}",
+                            market.getSlug(), pm.getWinner(), coinPriceEnd, pm.getVolume(), pm.getLiquidity());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch final details for expired market {}: {}", market.getSlug(), e.getMessage());
+            }
+
+            market.setActive(false);
+            marketRepository.save(market);
         }
-        return count;
+
+        if (!expiredMarkets.isEmpty()) {
+            log.info("Deactivated {} expired markets", expiredMarkets.size());
+        }
+        return expiredMarkets.size();
     }
 }

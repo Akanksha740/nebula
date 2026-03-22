@@ -4,6 +4,7 @@ import com.nebula.api.repository.ApiKeyRepository;
 import com.nebula.common.dto.ApiKeyDto;
 import com.nebula.common.dto.request.CreateApiKeyRequest;
 import com.nebula.common.entity.ApiKey;
+import com.nebula.common.config.TierConfig;
 import com.nebula.common.entity.Customer;
 import com.nebula.common.exception.ResourceNotFoundException;
 import com.nebula.common.exception.ValidationException;
@@ -26,8 +27,6 @@ import java.util.stream.Collectors;
 public class ApiKeyService {
 
     private static final Logger log = LoggerFactory.getLogger(ApiKeyService.class);
-    private static final int MAX_KEYS_PER_CUSTOMER = 5;
-
     private final ApiKeyRepository apiKeyRepository;
 
     @Transactional(readOnly = true)
@@ -42,9 +41,10 @@ public class ApiKeyService {
 
     @Transactional
     public ApiKeyGenerator.GeneratedKey createApiKey(Customer customer, CreateApiKeyRequest request) {
+        int maxKeys = TierConfig.getLimits(customer.getTier()).maxApiKeys();
         long activeKeys = apiKeyRepository.countActiveKeysByCustomerId(customer.getId());
-        if (activeKeys >= MAX_KEYS_PER_CUSTOMER) {
-            throw new ValidationException("Maximum number of API keys reached (" + MAX_KEYS_PER_CUSTOMER + ")");
+        if (activeKeys >= maxKeys) {
+            throw new ValidationException("Maximum number of API keys reached (" + maxKeys + "). Upgrade your plan for more.");
         }
 
         ApiKeyGenerator.GeneratedKey generated = ApiKeyGenerator.generate();
@@ -64,7 +64,7 @@ public class ApiKeyService {
                 .build();
 
         apiKeyRepository.save(apiKey);
-        log.info("Created new API key for customer: {}", customer.getId());
+        log.info("Created API key '{}' for customer: {}", request.getName(), customer.getEmail());
 
         return generated;
     }

@@ -25,9 +25,33 @@ public interface ApiUsageRepository extends JpaRepository<ApiUsage, UUID> {
             @Param("apiKeyId") UUID apiKeyId,
             @Param("since") Instant since);
 
+    @Query("SELECT COUNT(u) FROM ApiUsage u WHERE u.customerId = :customerId " +
+           "AND u.requestedAt >= :since AND u.statusCode = 200")
+    long countSuccessfulRequestsSince(
+            @Param("customerId") UUID customerId,
+            @Param("since") Instant since);
+
+    @Query("SELECT COUNT(u) FROM ApiUsage u WHERE u.customerId = :customerId " +
+           "AND u.requestedAt >= :since AND u.statusCode = 429")
+    long countRateLimitedRequestsSince(
+            @Param("customerId") UUID customerId,
+            @Param("since") Instant since);
+
     @Query("SELECT COALESCE(SUM(u.responseBytes), 0) FROM ApiUsage u " +
            "WHERE u.customerId = :customerId AND u.requestedAt >= :since")
     long sumResponseBytesSince(
+            @Param("customerId") UUID customerId,
+            @Param("since") Instant since);
+
+    @Query("SELECT COUNT(DISTINCT u.endpoint) FROM ApiUsage u " +
+           "WHERE u.customerId = :customerId AND u.requestedAt >= :since")
+    long countDistinctEndpointsSince(
+            @Param("customerId") UUID customerId,
+            @Param("since") Instant since);
+
+    @Query("SELECT COALESCE(AVG(u.responseTimeMs), 0) FROM ApiUsage u " +
+           "WHERE u.customerId = :customerId AND u.requestedAt >= :since")
+    double averageResponseTimeSince(
             @Param("customerId") UUID customerId,
             @Param("since") Instant since);
 
