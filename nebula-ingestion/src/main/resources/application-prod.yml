@@ -56,6 +56,7 @@ polymarket:
 nebula:
   snapshot:
     interval-ms: ${SNAPSHOT_INTERVAL_MS:1000}
+    long-interval-ms: ${SNAPSHOT_LONG_INTERVAL_MS:1000}
     log-each-tick: false
   retention:
     days: 30

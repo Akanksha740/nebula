@@ -26,7 +26,7 @@ public class ApiUsage {
     @Column(name = "customer_id", nullable = false)
     private UUID customerId;
 
-    @Column(name = "api_key_id", nullable = false)
+    @Column(name = "api_key_id")
     private UUID apiKeyId;
 
     @Column(nullable = false)

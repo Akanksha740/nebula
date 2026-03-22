@@ -31,29 +31,47 @@ public class BtcMarketScheduler {
     }
 
     /**
-     * Takes snapshots at configurable interval
-     * Default: every 500ms (2 per second)
+     * Takes snapshots for short-duration markets (5m, 15m, 1hr)
      * Configure via: nebula.snapshot.interval-ms
      */
     @Scheduled(fixedRateString = "${nebula.snapshot.interval-ms:500}")
-    public void snapshotActiveMarkets() {
+    public void snapshotShortMarkets() {
         if (logEachTick) {
-            log.info("--- Snapshot tick at {} ---", Instant.now());
+            log.info("--- Short market snapshot tick at {} ---", Instant.now());
         }
-        
+
         snapshotExecutor.submit(() -> {
             try {
-                btcMarketIngestionService.snapshotActiveMarkets();
+                btcMarketIngestionService.snapshotShortMarkets();
             } catch (Exception e) {
-                log.error("Snapshot failed", e);
+                log.error("Short market snapshot failed", e);
             }
         });
     }
 
     /**
-     * Deactivate expired markets every 15 minutes
+     * Takes snapshots for long-duration markets (4h, 24h) at 1 per second
+     * Configure via: nebula.snapshot.long-interval-ms
      */
-    @Scheduled(fixedRate = 900000)
+    @Scheduled(fixedRateString = "${nebula.snapshot.long-interval-ms:1000}")
+    public void snapshotLongMarkets() {
+        if (logEachTick) {
+            log.info("--- Long market snapshot tick at {} ---", Instant.now());
+        }
+
+        snapshotExecutor.submit(() -> {
+            try {
+                btcMarketIngestionService.snapshotLongMarkets();
+            } catch (Exception e) {
+                log.error("Long market snapshot failed", e);
+            }
+        });
+    }
+
+    /**
+     * Deactivate expired markets every 2.5 minutes
+     */
+    @Scheduled(fixedRate = 150000)
     public void deactivateExpiredMarkets() {
         try {
             btcMarketIngestionService.deactivateExpiredMarkets();

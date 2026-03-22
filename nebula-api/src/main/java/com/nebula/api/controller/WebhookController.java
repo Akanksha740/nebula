@@ -7,6 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.Map;
 
 @RestController
@@ -33,10 +38,28 @@ public class WebhookController {
     @PostMapping("/dodo")
     @SuppressWarnings("unchecked")
     public ResponseEntity<String> handleDodoWebhook(
-            @RequestBody Map<String, Object> payload,
+            @RequestBody String rawBody,
             @RequestHeader(value = "webhook-id", required = false) String webhookId,
             @RequestHeader(value = "webhook-signature", required = false) String webhookSignature,
             @RequestHeader(value = "webhook-timestamp", required = false) String webhookTimestamp) {
+
+        // Verify webhook signature
+        String secret = billingService.getWebhookSecret();
+        if (secret != null && !secret.isBlank()) {
+            if (!verifySignature(rawBody, webhookId, webhookTimestamp, webhookSignature, secret)) {
+                log.warn("Invalid webhook signature for webhook-id={}", webhookId);
+                return ResponseEntity.status(401).body("Invalid signature");
+            }
+        } else {
+            log.warn("Webhook secret not configured — skipping signature verification");
+        }
+
+        Map<String, Object> payload;
+        try {
+            payload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(rawBody, Map.class);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Invalid JSON");
+        }
 
         String eventType = (String) payload.get("type");
         Map<String, Object> data = (Map<String, Object>) payload.get("data");
@@ -67,17 +90,16 @@ public class WebhookController {
     private void handleSubscriptionActive(Map<String, Object> data) {
         Map<String, Object> metadata = getMetadata(data);
         String customerId = getStringFromMetadata(metadata, "nebula_customer_id");
-        String tier = getStringFromMetadata(metadata, "tier");
         String customerEmail = getCustomerEmail(data);
         String subscriptionId = (String) data.get("subscription_id");
+        String productId = (String) data.get("product_id");
 
         if (customerId == null && customerEmail == null) {
             log.warn("subscription.active webhook missing both nebula_customer_id and customer email: {}", data);
             return;
         }
 
-        String effectiveTier = (tier != null && !tier.isBlank()) ? tier : "PRO";
-        billingService.handleSubscriptionActive(customerId, customerEmail, effectiveTier, subscriptionId);
+        billingService.handleSubscriptionActive(customerId, customerEmail, productId, subscriptionId);
     }
 
     private void handleSubscriptionCancelled(Map<String, Object> data) {
@@ -117,5 +139,45 @@ public class WebhookController {
     private String getStringFromMetadata(Map<String, Object> metadata, String key) {
         Object value = metadata.get(key);
         return value != null ? value.toString() : null;
+    }
+
+    /**
+     * Verifies the Dodo webhook signature using HMAC-SHA256.
+     * Signature format: "v1,<base64-signature>"
+     * Signed content: "{webhook-id}.{webhook-timestamp}.{body}"
+     */
+    private boolean verifySignature(String body, String webhookId, String timestamp, String signature, String secret) {
+        if (webhookId == null || timestamp == null || signature == null) {
+            return false;
+        }
+
+        try {
+            String signedContent = webhookId + "." + timestamp + "." + body;
+
+            // Dodo webhook secret is base64-encoded, prefixed with "whsec_"
+            String secretKey = secret.startsWith("whsec_") ? secret.substring(6) : secret;
+            byte[] secretBytes = Base64.getDecoder().decode(secretKey);
+
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secretBytes, "HmacSHA256"));
+            byte[] hash = mac.doFinal(signedContent.getBytes(StandardCharsets.UTF_8));
+            String expectedSignature = Base64.getEncoder().encodeToString(hash);
+
+            // Signature header can contain multiple signatures separated by spaces: "v1,<sig1> v1,<sig2>"
+            for (String sig : signature.split(" ")) {
+                String[] parts = sig.split(",", 2);
+                if (parts.length == 2 && "v1".equals(parts[0])) {
+                    if (MessageDigest.isEqual(
+                            expectedSignature.getBytes(StandardCharsets.UTF_8),
+                            parts[1].getBytes(StandardCharsets.UTF_8))) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            log.error("Error verifying webhook signature: {}", e.getMessage());
+            return false;
+        }
     }
 }

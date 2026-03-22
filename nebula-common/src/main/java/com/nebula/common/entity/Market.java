@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Market entity - stores BTC/ETH/SOL Up/Down market data
+ * Market entity - stores BTC/ETH Up/Down market data
  */
 @Entity
 @Table(name = "markets", indexes = {

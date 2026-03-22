@@ -27,6 +27,7 @@ public class ApiAccessService {
 
     private static final Set<String> PUBLIC_ENDPOINTS = Set.of(
         "/health",
+        "/v1/health",
         "/v1/auth/login",
         "/v1/auth/register",
         "/v1/auth/google",
@@ -35,6 +36,7 @@ public class ApiAccessService {
         "/v1/auth/resend-verification",
         "/v1/auth/forgot-password",
         "/v1/auth/reset-password",
+        "/v1/auth/logout",
         "/v1/webhook/dodo",
         "/v1/admin",
         "/swagger-ui",
@@ -42,7 +44,8 @@ public class ApiAccessService {
     );
 
     private static final Map<String, SubscriptionTier> ENDPOINT_MIN_TIERS = Map.of(
-        "/v1/markets/*/snapshots", SubscriptionTier.STARTER
+        "/v1/markets/*/snapshots", SubscriptionTier.STARTER,
+        "/v1/markets/by-market-id/*/snapshots", SubscriptionTier.STARTER
     );
 
     public void checkAccess(Customer customer, ApiKey apiKey, String endpoint, String method) {
@@ -79,7 +82,7 @@ public class ApiAccessService {
 
     /**
      * Checks if the customer's tier allows access to the given coin.
-     * BTC is available to all tiers. ETH (and future coins like SOL) require PRO or higher.
+     * BTC is available to all tiers. ETH requires PRO or higher.
      */
     public void checkCoinAccess(Customer customer, Coin coin) {
         if (coin == Coin.BTC) {
@@ -96,42 +99,6 @@ public class ApiAccessService {
                             coin.name(), coin.name()),
                     "PRO",
                     customer.getTier().name());
-        }
-    }
-
-    public void validateDataAccess(Customer customer, Instant requestedDate) {
-        if (customer == null || requestedDate == null) {
-            return;
-        }
-
-        TierLimits limits = TierConfig.getLimits(customer.getTier());
-        if (!limits.canAccessDate(requestedDate)) {
-            int retentionDays = limits.dataRetentionDays();
-            String upgradeTier = getNextTierForDataAccess(customer.getTier());
-            throw new TierAccessException(
-                String.format("Your %s plan only allows access to the last %d days of data. Upgrade to %s for extended history.",
-                    customer.getTier().name(), retentionDays, upgradeTier),
-                upgradeTier,
-                customer.getTier().name()
-            );
-        }
-    }
-
-    public void validateResolution(Customer customer, int requestedMinutes) {
-        if (customer == null) {
-            return;
-        }
-
-        TierLimits limits = TierConfig.getLimits(customer.getTier());
-        if (!limits.canUseResolution(requestedMinutes)) {
-            int minResolution = limits.minResolutionMinutes();
-            String upgradeTier = getNextTierForResolution(customer.getTier());
-            throw new TierAccessException(
-                String.format("Your %s plan requires minimum %d minute resolution. Upgrade to %s for higher resolution data.",
-                    customer.getTier().name(), minResolution, upgradeTier),
-                upgradeTier,
-                customer.getTier().name()
-            );
         }
     }
 

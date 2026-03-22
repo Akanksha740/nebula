@@ -13,6 +13,8 @@ import lombok.Data;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -312,13 +314,27 @@ public class PolymarketMarket {
         return tokenId.replaceAll("[\\[\\]\"]", "").trim();
     }
 
-    public String getWinner() {
-        if (tokens != null) {
-            for (Token t : tokens) {
-                if (Boolean.TRUE.equals(t.getWinner())) {
-                    return t.getOutcome();
-                }
+    public Instant getClosedTimeInstant() {
+        if (closedTime == null || closedTime.isBlank()) return null;
+        try {
+            String normalized = closedTime.trim().replace(" ", "T");
+            if (normalized.matches(".*[+-]\\d{2}$")) {
+                normalized += ":00";
             }
+            return OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Determine winner from outcomePrices: whichever outcome has the higher price wins.
+     * Only use this during market deactivation/resolution.
+     */
+    public String getWinnerFromPrices() {
+        if (outcomes != null && outcomePrices != null && outcomes.size() == outcomePrices.size() && outcomes.size() == 2) {
+            return outcomePrices.get(0).compareTo(outcomePrices.get(1)) >= 0
+                    ? outcomes.get(0) : outcomes.get(1);
         }
         return null;
     }
@@ -328,6 +344,19 @@ public class PolymarketMarket {
             Event e = events.get(0);
             if (e.getEventMetadata() != null) {
                 Object price = e.getEventMetadata().get("priceToBeat");
+                if (price != null) {
+                    return new BigDecimal(price.toString());
+                }
+            }
+        }
+        return null;
+    }
+
+    public BigDecimal getCoinPriceEnd() {
+        if (events != null && !events.isEmpty()) {
+            Event e = events.get(0);
+            if (e.getEventMetadata() != null) {
+                Object price = e.getEventMetadata().get("finalPrice");
                 if (price != null) {
                     return new BigDecimal(price.toString());
                 }

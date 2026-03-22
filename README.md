@@ -10,7 +10,7 @@ A platform for capturing, storing, and monetizing Polymarket historical data thr
 - **REST API**: Full-featured API with pagination, search, and filtering
 - **Authentication**: API key and JWT-based authentication
 - **Rate Limiting**: Tier-based rate limiting with Redis
-- **Tiered Coin Access**: ETH data restricted to PRO and ENTERPRISE tiers (SOL coming soon)
+- **Tiered Coin Access**: ETH/SOL data restricted to PRO and ENTERPRISE tiers
 - **Billing Integration**: Dodo Payments integration for subscriptions
 - **Docker Ready**: Complete Docker Compose setup for easy deployment
 
@@ -165,7 +165,7 @@ GET /v1/markets?coin=ETH&market_type=5m&resolved=false&limit=50&offset=0&start_t
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `coin` | Yes | `BTC` or `ETH` (SOL coming soon) |
+| `coin` | Yes | `BTC`, `ETH`, or `SOL` |
 | `limit` | No | Results per page (1-100, default 50) |
 | `offset` | No | Pagination offset (default 0) |
 | `market_type` | No | Filter: `5m`, `15m`, `1h`, `4h`, `24h` |
@@ -187,8 +187,8 @@ No `coin` parameter needed -- the coin is derived from the slug automatically.
 | Tier | Daily Limit | Coins | Data Retention | Price |
 |------|-------------|-------|----------------|-------|
 | STARTER | 1,000 requests | BTC only | 30 days | $0/mo |
-| PRO | 50,000 requests | BTC, ETH | 365 days | $11/mo |
-| ENTERPRISE | Unlimited | BTC, ETH | 365 days | Custom |
+| PRO | 50,000 requests | BTC, ETH, SOL | 365 days | $11/mo |
+| ENTERPRISE | Unlimited | BTC, ETH, SOL | 365 days | Custom |
 
 ## Configuration
 

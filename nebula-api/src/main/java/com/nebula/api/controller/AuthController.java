@@ -1,6 +1,7 @@
 package com.nebula.api.controller;
 
 import com.nebula.api.service.AuthService;
+import com.nebula.api.service.CookieService;
 import com.nebula.common.dto.CustomerDto;
 import com.nebula.common.dto.request.GoogleAuthRequest;
 import com.nebula.common.dto.request.LoginRequest;
@@ -13,6 +14,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -26,13 +29,19 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final CookieService cookieService;
 
     @PostMapping("/register")
     @Operation(summary = "Register a new account")
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request) {
         AuthResponse response = authService.register(request);
-        return ResponseEntity.ok(ApiResponse.success(response, "Registration successful. Please check your email to verify your account."));
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok();
+        if (response.getAccessToken() != null) {
+            ResponseCookie cookie = cookieService.createAccessTokenCookie(response.getAccessToken());
+            builder.header(HttpHeaders.SET_COOKIE, cookie.toString());
+        }
+        return builder.body(ApiResponse.success(response, "Registration successful. Please check your email to verify your account."));
     }
 
     @PostMapping("/login")
@@ -40,7 +49,10 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
-        return ResponseEntity.ok(ApiResponse.success(response));
+        ResponseCookie cookie = cookieService.createAccessTokenCookie(response.getAccessToken());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(ApiResponse.success(response));
     }
 
     @GetMapping("/verify-email")
@@ -80,7 +92,10 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> googleAuth(
             @Valid @RequestBody GoogleAuthRequest request) {
         AuthResponse response = authService.googleAuth(request);
-        return ResponseEntity.ok(ApiResponse.success(response));
+        ResponseCookie cookie = cookieService.createAccessTokenCookie(response.getAccessToken());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(ApiResponse.success(response));
     }
 
     @GetMapping("/me")
@@ -92,5 +107,14 @@ public class AuthController {
         }
         CustomerDto dto = authService.getCurrentCustomer(customer);
         return ResponseEntity.ok(ApiResponse.success(dto));
+    }
+
+    @PostMapping("/logout")
+    @Operation(summary = "Logout and clear authentication cookie")
+    public ResponseEntity<ApiResponse<Void>> logout() {
+        ResponseCookie cookie = cookieService.createLogoutCookie();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(ApiResponse.success(null, "Logged out successfully"));
     }
 }

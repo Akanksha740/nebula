@@ -3,8 +3,8 @@ package com.nebula.api.controller;
 import com.nebula.api.service.ApiAccessService;
 import com.nebula.api.service.MarketService;
 import com.nebula.common.dto.MarketDto;
-import com.nebula.common.dto.MarketsListResponse;
 import com.nebula.common.dto.MarketWithSnapshotsResponse;
+import com.nebula.common.dto.MarketsListResponse;
 import com.nebula.common.entity.Coin;
 import com.nebula.common.entity.Customer;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,7 +42,7 @@ public class MarketController {
             @RequestParam String coin,
 
             @Parameter(description = "Number of results to return (1-100)")
-            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "100") int limit,
 
             @Parameter(description = "Pagination offset")
             @RequestParam(defaultValue = "0") int offset,
@@ -66,7 +66,7 @@ public class MarketController {
         apiAccessService.checkCoinAccess(customer, coinEnum);
 
         // Validate limit
-        if (limit < 1) limit = 1;
+        if (limit < 0) limit = 0;
         if (limit > 100) limit = 100;
 
         // Validate offset
@@ -76,8 +76,8 @@ public class MarketController {
         Instant startTimeAfter = parseTime(start_time);
         Instant startTimeBefore = parseTime(end_time);
 
-        log.info("Markets request: coin={}, type={}, limit={}, customer={}",
-                coin, market_type, limit, customer != null ? customer.getEmail() : "anonymous");
+        log.info("Markets request: coin={}, type={}, limit={}, customer={}, tier={}",
+                coin, market_type, limit, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
 
         MarketsListResponse response = marketService.getMarkets(
                 customer, coinEnum, market_type, resolved, startTimeAfter, startTimeBefore, limit, offset);
@@ -92,7 +92,7 @@ public class MarketController {
             @PathVariable String slug) {
         Coin coinEnum = coinFromSlug(slug);
         apiAccessService.checkCoinAccess(customer, coinEnum);
-        log.info("Market request: slug={}, coin={}, customer={}", slug, coinEnum, customer != null ? customer.getEmail() : "anonymous");
+        log.info("Market request: slug={}, coin={}, customer={}, tier={}", slug, coinEnum, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
         return ResponseEntity.ok(marketService.getMarketBySlug(slug));
     }
 
@@ -101,15 +101,53 @@ public class MarketController {
     public ResponseEntity<MarketWithSnapshotsResponse> getMarketWithSnapshots(
             @AuthenticationPrincipal Customer customer,
             @PathVariable String slug,
-            @RequestParam(defaultValue = "100") int limit,
+            @Parameter(description = "Number of results to return (1-100)")
+            @RequestParam(defaultValue = "1000") int limit,
+
+            @Parameter(description = "Pagination offset")
             @RequestParam(defaultValue = "0") int offset,
+
             @Parameter(description = "Include full orderbook data (default: false for lower latency)")
             @RequestParam(defaultValue = "false") boolean include_orderbook) {
         Coin coinEnum = coinFromSlug(slug);
         apiAccessService.checkCoinAccess(customer, coinEnum);
-        log.info("Snapshots request: slug={}, coin={}, limit={}, customer={}",
-                slug, coinEnum, limit, customer != null ? customer.getEmail() : "anonymous");
+
+        // Validate limit
+        if (limit < 1) limit = 1;
+        if (limit > 1000) limit = 1000;
+
+        // Validate offset
+        if (offset < 0) offset = 0;
+
+        log.info("Snapshots request: slug={}, coin={}, limit={}, customer={}, tier={}",
+                slug, coinEnum, limit, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
         return ResponseEntity.ok(marketService.getMarketWithSnapshots(customer, slug, limit, offset, include_orderbook));
+    }
+
+    @GetMapping("/by-market-id/{marketId}/snapshots")
+    @Operation(summary = "Get market with snapshots by Polymarket market ID")
+    public ResponseEntity<MarketWithSnapshotsResponse> getMarketWithSnapshotsByMarketId(
+            @AuthenticationPrincipal Customer customer,
+            @PathVariable String marketId,
+            @Parameter(description = "Number of results to return (1-1000)")
+            @RequestParam(defaultValue = "1000") int limit,
+
+            @Parameter(description = "Pagination offset")
+            @RequestParam(defaultValue = "0") int offset,
+
+            @Parameter(description = "Include full orderbook data (default: false for lower latency)")
+            @RequestParam(defaultValue = "false") boolean include_orderbook) {
+
+        // Validate limit
+        if (limit < 1) limit = 1;
+        if (limit > 1000) limit = 1000;
+
+        // Validate offset
+        if (offset < 0) offset = 0;
+
+        log.info("Snapshots by marketId request: marketId={}, limit={}, customer={}, tier={}",
+                marketId, limit, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
+        return ResponseEntity.ok(marketService.getMarketWithSnapshotsByMarketId(customer, marketId, limit, offset, include_orderbook));
     }
 
     private Coin coinFromSlug(String slug) {
@@ -128,8 +166,8 @@ public class MarketController {
         try {
             return Coin.valueOf(coin.toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, 
-                    "Invalid coin: " + coin + ". Supported values: btc, eth, sol");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unsupported coin: " + coin + ". Only BTC and ETH are supported as of now");
         }
     }
 

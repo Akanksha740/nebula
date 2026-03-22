@@ -11,6 +11,7 @@ import com.nebula.common.entity.Coin;
 import com.nebula.common.entity.Customer;
 import com.nebula.common.entity.Market;
 import com.nebula.common.entity.MarketSnapshot;
+import com.nebula.common.entity.Customer.SubscriptionTier;
 import com.nebula.common.exception.ResourceNotFoundException;
 import com.nebula.common.exception.TierAccessException;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class MarketService {
     private static final Logger log = LoggerFactory.getLogger(MarketService.class);
     private final MarketRepository marketRepository;
     private final MarketSnapshotRepository snapshotRepository;
+    private final ApiAccessService apiAccessService;
 
     public MarketsListResponse getMarkets(
             Customer customer,
@@ -44,22 +46,31 @@ public class MarketService {
             int offset) {
 
         // Enforce tier-based market history limits
-        if (customer != null) {
+        String warning = null;
+        int maxMarkets = Integer.MAX_VALUE;
+        if (customer != null && marketType != null) {
             TierConfig.TierLimits tierLimits = TierConfig.getLimits(customer.getTier());
-            int maxMarkets = tierLimits.getMarketLimit(marketType);
-            if (limit > maxMarkets) limit = maxMarkets;
-            if (offset >= maxMarkets) {
-                return MarketsListResponse.builder()
-                        .markets(List.of())
-                        .total(0)
-                        .limit(limit)
-                        .offset(offset)
-                        .build();
-            }
-            if (offset + limit > maxMarkets) {
-                limit = maxMarkets - offset;
+            maxMarkets = tierLimits.getMarketLimit(marketType);
+            if (maxMarkets != Integer.MAX_VALUE) {
+                if (offset >= maxMarkets) {
+                    warning = String.format("%s plan limit reached. Upgrade to PRO to view all markets.",
+                            customer.getTier());
+                    return MarketsListResponse.builder()
+                            .markets(List.of())
+                            .total(0)
+                            .limit(limit)
+                            .offset(offset)
+                            .warning(warning)
+                            .build();
+                }
+                int remaining = maxMarkets - offset;
+                if (limit > remaining) {
+                    limit = remaining;
+                }
             }
         }
+
+        limit = Math.max(limit, 1);
 
         Pageable pageable = PageRequest.of(offset / limit, limit);
         Page<Market> page;
@@ -97,10 +108,9 @@ public class MarketService {
                 .map(this::toDto)
                 .collect(Collectors.toList());
 
-        // Cap total to tier limit so frontend shows correct pagination
-        if (customer != null) {
-            int maxMarkets = TierConfig.getLimits(customer.getTier()).getMarketLimit(marketType);
-            if (total > maxMarkets) total = maxMarkets;
+        if (maxMarkets != Integer.MAX_VALUE && offset + limit >= maxMarkets) {
+            warning = String.format("%s plan limit reached. Showing latest %d of %d allowed markets. Upgrade to PRO to view all markets.",
+                    customer.getTier(), marketDtos.size(), maxMarkets);
         }
 
         return MarketsListResponse.builder()
@@ -108,19 +118,8 @@ public class MarketService {
                 .total((int) total)
                 .limit(limit)
                 .offset(offset)
+                .warning(warning)
                 .build();
-    }
-
-    public List<MarketDto> getAllMarkets() {
-        return marketRepository.findAll().stream()
-                .map(this::toDto)
-                .toList();
-    }
-
-    public List<MarketDto> getActiveMarkets() {
-        return marketRepository.findByActiveTrue().stream()
-                .map(this::toDto)
-                .toList();
     }
 
     public MarketDto getMarketBySlug(String slug) {
@@ -129,25 +128,34 @@ public class MarketService {
         return toDto(market);
     }
 
+    public MarketWithSnapshotsResponse getMarketWithSnapshotsByMarketId(Customer customer, String marketId, int limit, int offset, boolean includeOrderbook) {
+        Market market = marketRepository.findByMarketId(marketId)
+                .orElseThrow(() -> new ResourceNotFoundException("Market", marketId));
+        apiAccessService.checkCoinAccess(customer, market.getCoin());
+        return buildMarketWithSnapshotsResponse(customer, market, limit, offset, includeOrderbook);
+    }
+
     public MarketWithSnapshotsResponse getMarketWithSnapshots(Customer customer, String slug, int limit, int offset, boolean includeOrderbook) {
         Market market = marketRepository.findBySlug(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("Market", slug));
+        return buildMarketWithSnapshotsResponse(customer, market, limit, offset, includeOrderbook);
+    }
 
-        // Cap limit to 1000 for all users
-        if (limit > 1000) limit = 1000;
-
-        // Enforce tier-based snapshot limits
-        if (customer != null) {
-            TierConfig.TierLimits tierLimits = TierConfig.getLimits(customer.getTier());
-            int maxSnapshots = tierLimits.getSnapshotLimit(market.getMarketType());
-            if (offset >= maxSnapshots || offset + limit > maxSnapshots) {
-                throw new TierAccessException(
-                        String.format("Your %s plan allows access to the last %d snapshots for %s markets. Upgrade to PRO for unlimited snapshot access.",
-                                customer.getTier().name(), maxSnapshots, market.getMarketType()),
-                        "PRO",
-                        customer.getTier().name());
+    private MarketWithSnapshotsResponse buildMarketWithSnapshotsResponse(Customer customer, Market market, int limit, int offset, boolean includeOrderbook) {
+        // STARTER users can only access snapshots for the most recent N markets per type
+        if (customer != null && customer.getTier() == SubscriptionTier.STARTER
+                && market.getMarketType() != null && market.getStartTime() != null) {
+            int maxMarkets = TierConfig.getLimits(customer.getTier()).getMarketLimit(market.getMarketType());
+            if (maxMarkets != Integer.MAX_VALUE) {
+                long newerMarketsCount = marketRepository.countByCoinAndMarketTypeAndStartTimeAfter(
+                        market.getCoin(), market.getMarketType(), market.getStartTime());
+                if (newerMarketsCount >= maxMarkets) {
+                    throw new TierAccessException(
+                            String.format("This market is beyond your STARTER plan limit of %d most recent %s markets. Upgrade to PRO to access all market snapshots.",
+                                    maxMarkets, market.getMarketType()),
+                            "PRO", "STARTER");
+                }
             }
-            if (limit > maxSnapshots) limit = maxSnapshots;
         }
 
         long total = snapshotRepository.countByMarketId(market.getId());
@@ -158,12 +166,6 @@ public class MarketService {
         List<MarketSnapshotDto> snapshotDtos = snapshots.stream()
                 .map(s -> toSnapshotDto(s, includeOrderbook))
                 .toList();
-
-        // Cap total to tier limit
-        if (customer != null) {
-            int maxSnapshots = TierConfig.getLimits(customer.getTier()).getSnapshotLimit(market.getMarketType());
-            if (total > maxSnapshots) total = maxSnapshots;
-        }
 
         return MarketWithSnapshotsResponse.builder()
                 .market(toDto(market))

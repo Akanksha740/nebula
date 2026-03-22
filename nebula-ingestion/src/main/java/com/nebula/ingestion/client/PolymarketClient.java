@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
@@ -32,8 +33,13 @@ public class PolymarketClient {
                 .uri(baseUrl + "/markets/slug/{slug}", slug)
                 .retrieve()
                 .bodyToMono(PolymarketMarket.class)
-                .retryWhen(Retry.backoff(retryAttempts, Duration.ofMillis(retryDelayMs)))
-                .doOnError(error -> 
+                .onErrorResume(WebClientResponseException.NotFound.class, e -> {
+                    log.debug("Market not found on Polymarket for slug: {}", slug);
+                    return Mono.empty();
+                })
+                .retryWhen(Retry.backoff(retryAttempts, Duration.ofMillis(retryDelayMs))
+                        .filter(ex -> !(ex instanceof WebClientResponseException.NotFound)))
+                .doOnError(error ->
                     log.error("Failed to fetch market by slug {} from Polymarket", slug, error));
     }
 }

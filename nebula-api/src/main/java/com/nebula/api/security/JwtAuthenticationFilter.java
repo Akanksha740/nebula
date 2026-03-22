@@ -1,9 +1,11 @@
 package com.nebula.api.security;
 
 import com.nebula.api.repository.CustomerRepository;
+import com.nebula.api.service.CookieService;
 import com.nebula.common.entity.Customer;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomerRepository customerRepository;
+    private final CookieService cookieService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -65,6 +68,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private String extractJwtToken(HttpServletRequest request) {
+        // Try Authorization header first
         String authHeader = request.getHeader("Authorization");
         if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
             String token = authHeader.substring(BEARER_PREFIX.length());
@@ -72,6 +76,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return token;
             }
         }
+
+        // Fall back to HttpOnly cookie
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            String cookieName = cookieService.getCookieName();
+            for (Cookie cookie : cookies) {
+                if (cookieName.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+
         return null;
     }
 }

@@ -15,6 +15,7 @@ import java.util.Locale;
  *   5m  → btc-updown-5m-{epoch}
  *   15m → btc-updown-15m-{epoch}
  *   1h  → bitcoin-up-or-down-{month}-{day}-{year}-{hour}{am/pm}-et
+ *         OR bitcoin-up-or-down-{month}-{day}-{hour}{am/pm}-et
  *   4h  → btc-updown-4h-{epoch}
  *   24h → bitcoin-up-or-down-on-{month}-{day}-{year}
  *
@@ -22,6 +23,7 @@ import java.util.Locale;
  *   5m  → eth-updown-5m-{epoch}
  *   15m → eth-updown-15m-{epoch}
  *   1h  → ethereum-up-or-down-{month}-{day}-{year}-{hour}{am/pm}-et
+ *         OR ethereum-up-or-down-{month}-{day}-{hour}{am/pm}-et
  *   4h  → eth-updown-4h-{epoch}
  *   24h → ethereum-up-or-down-on-{month}-{day}-{year}
  */
@@ -46,17 +48,35 @@ public final class SlugGenerator {
      * Generate slugs for all market types (BTC + ETH) based on a given instant.
      */
     public static List<String> generateSlugs(Instant now) {
-        List<String> slugs = new ArrayList<>(10);
-        // BTC slugs
+        List<String> slugs = new ArrayList<>(12);
+        slugs.addAll(generateShortMarketSlugs(now));
+        slugs.addAll(generateLongMarketSlugs(now));
+        return slugs;
+    }
+
+    /**
+     * Generate slugs for short-duration markets (5m, 15m, 1hr).
+     */
+    public static List<String> generateShortMarketSlugs(Instant now) {
+        List<String> slugs = new ArrayList<>(8);
         slugs.add(generate5mSlug(now));
         slugs.add(generate15mSlug(now));
         slugs.add(generate1hSlug(now));
-        slugs.add(generate4hSlug(now));
-        slugs.add(generate24hSlug(now));
-        // ETH slugs
+        slugs.add(generate1hSlugNoYear(now));
         slugs.add(generateEth5mSlug(now));
         slugs.add(generateEth15mSlug(now));
         slugs.add(generateEth1hSlug(now));
+        slugs.add(generateEth1hSlugNoYear(now));
+        return slugs;
+    }
+
+    /**
+     * Generate slugs for long-duration markets (4h, 24h).
+     */
+    public static List<String> generateLongMarketSlugs(Instant now) {
+        List<String> slugs = new ArrayList<>(4);
+        slugs.add(generate4hSlug(now));
+        slugs.add(generate24hSlug(now));
         slugs.add(generateEth4hSlug(now));
         slugs.add(generateEth24hSlug(now));
         return slugs;
@@ -100,6 +120,24 @@ public final class SlugGenerator {
 
         return String.format("bitcoin-up-or-down-%s-%d-%d-%d%s-et",
                 month, day, year, displayHour, ampm);
+    }
+
+    /**
+     * 1-hour market slug without year: bitcoin-up-or-down-{month}-{day}-{hour}{am/pm}-et
+     */
+    public static String generate1hSlugNoYear(Instant now) {
+        ZonedDateTime et = now.atZone(ET);
+        ZonedDateTime startOfHour = et.truncatedTo(ChronoUnit.HOURS);
+
+        String month = startOfHour.getMonth().getDisplayName(TextStyle.FULL, Locale.US).toLowerCase();
+        int day = startOfHour.getDayOfMonth();
+        int hour24 = startOfHour.getHour();
+        String ampm = hour24 < 12 ? "am" : "pm";
+        int displayHour = hour24 % 12;
+        if (displayHour == 0) displayHour = 12;
+
+        return String.format("bitcoin-up-or-down-%s-%d-%d%s-et",
+                month, day, displayHour, ampm);
     }
 
     /**
@@ -171,6 +209,24 @@ public final class SlugGenerator {
 
         return String.format("ethereum-up-or-down-%s-%d-%d-%d%s-et",
                 month, day, year, displayHour, ampm);
+    }
+
+    /**
+     * 1-hour ETH market slug without year: ethereum-up-or-down-{month}-{day}-{hour}{am/pm}-et
+     */
+    public static String generateEth1hSlugNoYear(Instant now) {
+        ZonedDateTime et = now.atZone(ET);
+        ZonedDateTime startOfHour = et.truncatedTo(ChronoUnit.HOURS);
+
+        String month = startOfHour.getMonth().getDisplayName(TextStyle.FULL, Locale.US).toLowerCase();
+        int day = startOfHour.getDayOfMonth();
+        int hour24 = startOfHour.getHour();
+        String ampm = hour24 < 12 ? "am" : "pm";
+        int displayHour = hour24 % 12;
+        if (displayHour == 0) displayHour = 12;
+
+        return String.format("ethereum-up-or-down-%s-%d-%d%s-et",
+                month, day, displayHour, ampm);
     }
 
     /**

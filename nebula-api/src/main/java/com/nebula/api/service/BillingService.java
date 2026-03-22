@@ -109,17 +109,16 @@ public class BillingService {
 
     /**
      * Called from webhook after Dodo confirms subscription is active.
-     * Looks up customer by ID first, falls back to email.
+     * Validates the product ID to determine the tier — does not trust metadata.
      */
     @Transactional
-    public void handleSubscriptionActive(String customerId, String customerEmail, String tier, String subscriptionId) {
+    public void handleSubscriptionActive(String customerId, String customerEmail, String productId, String subscriptionId) {
         Customer customer = findCustomer(customerId, customerEmail);
 
-        Customer.SubscriptionTier newTier;
-        try {
-            newTier = Customer.SubscriptionTier.valueOf(tier.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new NebulaException("Invalid tier: " + tier, "INVALID_TIER", 400);
+        Customer.SubscriptionTier newTier = getTierForProductId(productId);
+        if (newTier == null) {
+            log.warn("Webhook received with unrecognized product_id={} for customer={}", productId, customerEmail);
+            throw new NebulaException("Unrecognized product_id: " + productId, "INVALID_PRODUCT", 400);
         }
 
         Customer.SubscriptionTier previousTier = customer.getTier();
@@ -129,8 +128,8 @@ public class BillingService {
 
         clearRateLimitCache(customer.getId());
 
-        log.info("Upgraded customer {} from {} to {} (subscription: {})",
-                customer.getEmail(), previousTier, newTier, subscriptionId);
+        log.info("Upgraded customer {} from {} to {} (subscription: {}, product: {})",
+                customer.getEmail(), previousTier, newTier, subscriptionId, productId);
     }
 
     /**
@@ -185,6 +184,16 @@ public class BillingService {
             case PRO -> proProductId;
             default -> throw new NebulaException("Upgrade not available for tier: " + tier.name(), "INVALID_TIER", 400);
         };
+    }
+
+    /**
+     * Maps a Dodo product ID to the corresponding subscription tier.
+     * Returns null if the product ID is not recognized.
+     */
+    private Customer.SubscriptionTier getTierForProductId(String productId) {
+        if (productId == null || productId.isBlank()) return null;
+        if (productId.equals(proProductId)) return Customer.SubscriptionTier.PRO;
+        return null;
     }
 
     private void clearRateLimitCache(java.util.UUID customerId) {

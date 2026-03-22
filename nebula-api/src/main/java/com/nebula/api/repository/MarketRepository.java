@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,8 @@ import java.util.UUID;
 public interface MarketRepository extends JpaRepository<Market, UUID> {
 
     Optional<Market> findBySlug(String slug);
+
+    Optional<Market> findByMarketId(String marketId);
 
     List<Market> findByActiveTrue();
 
@@ -36,4 +39,6 @@ public interface MarketRepository extends JpaRepository<Market, UUID> {
 
     Page<Market> findByCoinAndMarketTypeAndResolvedFalseOrderByStartTimeDesc(Coin coin, String marketType, Pageable pageable);
     long countByCoinAndMarketTypeAndResolvedFalse(Coin coin, String marketType);
+
+    long countByCoinAndMarketTypeAndStartTimeAfter(Coin coin, String marketType, Instant startTime);
 }

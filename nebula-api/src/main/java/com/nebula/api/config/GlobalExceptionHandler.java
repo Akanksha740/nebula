@@ -11,6 +11,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -41,7 +43,6 @@ public class GlobalExceptionHandler {
         if (ex.getCurrentTier() != null) {
             details.put("current_tier", ex.getCurrentTier());
         }
-        details.put("upgrade_url", "/v1/account/billing");
         return ResponseEntity
                 .status(ex.getHttpStatus())
                 .body(ApiResponse.error(ex.getMessage(), ex.getErrorCode(), details));
@@ -78,6 +79,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("Validation failed", "VALIDATION_ERROR"));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResponseStatusException(ResponseStatusException ex) {
+        log.warn("Request error: {}", ex.getReason());
+        return ResponseEntity
+                .status(ex.getStatusCode())
+                .body(ApiResponse.error(ex.getReason(), "BAD_REQUEST"));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException ex) {
+        log.debug("Resource not found: {}", ex.getResourcePath());
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error("Resource not found", "NOT_FOUND"));
     }
 
     @ExceptionHandler(Exception.class)

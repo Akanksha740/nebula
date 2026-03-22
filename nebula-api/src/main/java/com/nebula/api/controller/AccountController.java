@@ -43,7 +43,7 @@ public class AccountController {
     public ResponseEntity<ApiResponse<List<ApiKeyDto>>> getApiKeys(
             @AuthenticationPrincipal Customer customer) {
         requireAuth(customer);
-        log.info("List API keys: customer={}", customer.getEmail());
+        log.info("List API keys: customer={}, tier={}", customer.getEmail(), customer.getTier());
         List<ApiKeyDto> keys = apiKeyService.getCustomerApiKeys(customer.getId());
         return ResponseEntity.ok(ApiResponse.success(keys));
     }
@@ -54,7 +54,7 @@ public class AccountController {
             @AuthenticationPrincipal Customer customer,
             @Valid @RequestBody CreateApiKeyRequest request) {
         requireAuth(customer);
-        log.info("Create API key: name={}, customer={}", request.getName(), customer.getEmail());
+        log.info("Create API key: name={}, customer={}, tier={}", request.getName(), customer.getEmail(), customer.getTier());
         ApiKeyGenerator.GeneratedKey generated = apiKeyService.createApiKey(customer, request);
 
         Map<String, String> response = Map.of(
@@ -71,7 +71,7 @@ public class AccountController {
             @AuthenticationPrincipal Customer customer,
             @PathVariable UUID keyId) {
         requireAuth(customer);
-        log.info("Revoke API key: keyId={}, customer={}", keyId, customer.getEmail());
+        log.info("Revoke API key: keyId={}, customer={}, tier={}", keyId, customer.getEmail(), customer.getTier());
         apiKeyService.revokeApiKey(customer.getId(), keyId);
         return ResponseEntity.ok(ApiResponse.success(null, "API key revoked successfully"));
     }
@@ -81,7 +81,7 @@ public class AccountController {
     public ResponseEntity<ApiResponse<UsageStatsDto>> getUsage(
             @AuthenticationPrincipal Customer customer) {
         requireAuth(customer);
-        log.info("Usage stats: customer={}", customer.getEmail());
+        log.info("Usage stats: customer={}, tier={}", customer.getEmail(), customer.getTier());
         UsageStatsDto stats = usageTrackingService.getUsageStats(customer);
         return ResponseEntity.ok(ApiResponse.success(stats));
     }

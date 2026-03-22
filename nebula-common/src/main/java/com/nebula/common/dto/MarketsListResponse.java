@@ -13,4 +13,5 @@ public class MarketsListResponse {
     private Integer total;
     private Integer limit;
     private Integer offset;
+    private String warning;
 }
