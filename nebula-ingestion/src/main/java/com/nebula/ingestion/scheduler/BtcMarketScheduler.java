@@ -1,7 +1,6 @@
 package com.nebula.ingestion.scheduler;
 
 import com.nebula.ingestion.service.BtcMarketIngestionService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;

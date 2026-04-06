@@ -7,34 +7,27 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 
 /**
- * Provides Chainlink BTC/USD and ETH/USD prices by reading from the
- * WebSocket service's in-memory cache. Reads are instant (no network call).
+ * Provides BTC/USD price from the Chainlink feed via Polymarket RTDS WebSocket.
+ * Zero-latency reads from an in-memory cache.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class ChainlinkClient {
 
-    private final ChainlinkWebSocketService webSocketService;
+    private final PolymarketWebSocketService rtdsService;
 
     /**
-     * Get latest BTC/USD price from the WebSocket cache.
+     * BTC/USD from Chainlink feed.
      */
     public BigDecimal getBtcPrice() {
-        return webSocketService.getBtcPrice();
+        return rtdsService.getChainlinkBtcPrice();
     }
 
     /**
-     * Get latest ETH/USD price from the WebSocket cache.
-     */
-    public BigDecimal getEthPrice() {
-        return webSocketService.getEthPrice();
-    }
-
-    /**
-     * Returns true if the WebSocket connection is active and prices are fresh.
+     * Returns true if the RTDS connection is active and prices are fresh.
      */
     public boolean isConnected() {
-        return webSocketService.isConnected();
+        return rtdsService.isConnected();
     }
 }

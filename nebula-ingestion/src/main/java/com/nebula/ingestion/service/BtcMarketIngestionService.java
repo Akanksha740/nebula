@@ -34,36 +34,29 @@ public class BtcMarketIngestionService {
     private final MarketPersistenceService persistenceService;
 
     /**
-     * Snapshot short-duration markets (5m, 15m, 1hr) using Chainlink prices.
+     * Snapshot short-duration markets (5m, 15m, 1hr).
+     * BTC price from Chainlink (fallback to Binance), ETH and SOL from Binance.
      */
     public void snapshotShortMarkets() {
-        Map<Coin, BigDecimal> chainlinkPrices = fetchChainlinkPrices();
-        Map<Coin, BigDecimal> binanceFallback = chainlinkPrices.containsValue(null) ? fetchBinancePrices() : Map.of();
-        snapshotSlugs(SlugGenerator.generateShortMarketSlugs(Instant.now()), chainlinkPrices, binanceFallback);
+        Map<Coin, BigDecimal> prices = fetchPrices();
+        snapshotSlugs(SlugGenerator.generateShortMarketSlugs(Instant.now()), prices);
     }
 
     /**
      * Snapshot long-duration markets (4h, 24h) using Binance prices.
      */
     public void snapshotLongMarkets() {
-        Map<Coin, BigDecimal> binancePrices = fetchBinancePrices();
-        snapshotSlugs(SlugGenerator.generateLongMarketSlugs(Instant.now()), binancePrices, Map.of());
+        Map<Coin, BigDecimal> prices = fetchBinancePrices();
+        snapshotSlugs(SlugGenerator.generateLongMarketSlugs(Instant.now()), prices);
     }
 
-    private void snapshotSlugs(List<String> slugs, Map<Coin, BigDecimal> primaryPrices, Map<Coin, BigDecimal> fallbackPrices) {
+    private void snapshotSlugs(List<String> slugs, Map<Coin, BigDecimal> prices) {
         int snapshotCount = 0;
         for (String slug : slugs) {
             try {
-                Market market = findOrCreateMarket(slug, coinPrices);
+                Market market = findOrCreateMarket(slug, prices);
                 if (market != null && market.getActive()) {
-                    Coin coin = market.getCoin();
-                    BigDecimal coinPrice = primaryPrices.get(coin);
-                    if (coinPrice == null) {
-                        coinPrice = fallbackPrices.get(coin);
-                        if (coinPrice != null) {
-                            log.warn("Primary price unavailable for {} on {}, using fallback", coin, slug);
-                        }
-                    }
+                    BigDecimal coinPrice = prices.get(market.getCoin());
                     fetchAndSaveSnapshot(market, coinPrice);
                     snapshotCount++;
                 }
@@ -204,16 +197,12 @@ public class BtcMarketIngestionService {
         return Map.of("bids", bids, "asks", asks);
     }
 
-    /**
-     * Fetch prices from Binance (used for long markets: 4h, 24h,
-     * and as fallback for short markets when Chainlink is unavailable).
->>>>>>> cd13c11 (Using chain link for 5m and 15m market)
-     */
     private Map<Coin, BigDecimal> fetchBinancePrices() {
         Map<Coin, BigDecimal> prices = new EnumMap<>(Coin.class);
         BigDecimal btcPrice = binanceClient.fetchBtcPrice().block(Duration.ofSeconds(5));
         BigDecimal ethPrice = binanceClient.fetchEthPrice().block(Duration.ofSeconds(5));
         BigDecimal solPrice = binanceClient.fetchSolPrice().block(Duration.ofSeconds(5));
+
         prices.put(Coin.BTC, btcPrice);
         prices.put(Coin.ETH, ethPrice);
         prices.put(Coin.SOL, solPrice);
@@ -222,18 +211,23 @@ public class BtcMarketIngestionService {
     }
 
     /**
-     * Read cached Chainlink prices (populated via WebSocket, zero latency).
-     * Used for short markets: 5m, 15m, 1hr.
+     * BTC from Chainlink (fallback to Binance), ETH and SOL from Binance.
      */
-    private Map<Coin, BigDecimal> fetchChainlinkPrices() {
+    private Map<Coin, BigDecimal> fetchPrices() {
         Map<Coin, BigDecimal> prices = new EnumMap<>(Coin.class);
+
         BigDecimal btcPrice = chainlinkClient.getBtcPrice();
-        BigDecimal ethPrice = chainlinkClient.getEthPrice();
+        if (btcPrice == null) {
+            log.warn("Chainlink BTC price unavailable, falling back to Binance");
+            btcPrice = binanceClient.fetchBtcPrice().block(Duration.ofSeconds(5));
+        }
+        BigDecimal ethPrice = binanceClient.fetchEthPrice().block(Duration.ofSeconds(5));
+        BigDecimal solPrice = binanceClient.fetchSolPrice().block(Duration.ofSeconds(5));
+
         prices.put(Coin.BTC, btcPrice);
         prices.put(Coin.ETH, ethPrice);
-        if (btcPrice != null || ethPrice != null) {
-            log.debug("Chainlink cached prices - BTC: {}, ETH: {}", btcPrice, ethPrice);
-        }
+        prices.put(Coin.SOL, solPrice);
+        log.debug("Prices - BTC: {} (Chainlink), ETH: {} (Binance), SOL: {} (Binance)", btcPrice, ethPrice, solPrice);
         return prices;
     }
 

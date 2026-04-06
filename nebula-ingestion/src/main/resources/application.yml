@@ -52,17 +52,14 @@ polymarket:
     retry-delay-ms: 1000
   clob:
     base-url: https://clob.polymarket.com
+  rtds:
+    ws-url: ${POLYMARKET_RTDS_URL:wss://ws-live-data.polymarket.com}
 
 # Binance API configuration (used for 1h, 4h, 24h markets)
 binance:
   api:
     base-url: https://api.binance.com
 
-# Chainlink on-chain price feeds via WebSocket (used for 5m, 15m markets)
-chainlink:
-  ws-url: ${CHAINLINK_WS_URL:wss://ethereum-rpc.publicnode.com}
-  btc-usd-feed: ${CHAINLINK_BTC_USD_FEED:0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c}
-  eth-usd-feed: ${CHAINLINK_ETH_USD_FEED:0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419}
 
 # Nebula configuration
 nebula:
