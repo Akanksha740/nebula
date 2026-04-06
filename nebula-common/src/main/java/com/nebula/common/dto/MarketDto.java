@@ -52,6 +52,9 @@ public class MarketDto {
     @JsonProperty("coin_price_end")
     private BigDecimal coinPriceEnd;
 
+    @JsonProperty("is_resolved")
+    private Boolean isResolved;
+
     @JsonProperty("resolved_at")
     private Instant resolvedAt;
 

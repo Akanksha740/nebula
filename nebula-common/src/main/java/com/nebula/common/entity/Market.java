@@ -81,6 +81,10 @@ public class Market {
     @Builder.Default
     private Boolean resolved = false;
 
+    @Column(name = "is_resolved", nullable = false)
+    @Builder.Default
+    private Boolean isResolved = false;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean active = true;

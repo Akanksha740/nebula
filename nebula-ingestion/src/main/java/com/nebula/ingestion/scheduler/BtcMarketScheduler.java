@@ -69,9 +69,9 @@ public class BtcMarketScheduler {
     }
 
     /**
-     * Deactivate expired markets every 2.5 minutes
+     * Deactivate expired markets every 7 seconds
      */
-    @Scheduled(fixedRate = 150000)
+    @Scheduled(fixedRate = 450000)
     public void deactivateExpiredMarkets() {
         try {
             btcMarketIngestionService.deactivateExpiredMarkets();

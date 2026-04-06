@@ -10,12 +10,11 @@ import com.nebula.ingestion.client.dto.OrderbookResponse;
 import com.nebula.ingestion.client.dto.PolymarketMarket;
 import com.nebula.ingestion.repository.MarketRepository;
 import com.nebula.ingestion.repository.MarketSnapshotRepository;
+import com.nebula.ingestion.util.SlugGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import com.nebula.ingestion.util.SlugGenerator;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -150,7 +149,7 @@ public class BtcMarketIngestionService {
             }
 
             // Update market info (but NOT start_time and end_time)
-            updateMarketFromPolymarket(market, pm);
+            updateMarketFromPolymarket(market, pm, coinPrice);
 
             // Check if resolved
             boolean isResolved = isMarketResolved(pm);
@@ -204,7 +203,7 @@ public class BtcMarketIngestionService {
     /**
      * Update market from Polymarket data (does NOT update start_time and end_time)
      */
-    private void updateMarketFromPolymarket(Market market, PolymarketMarket pm) {
+    private void updateMarketFromPolymarket(Market market, PolymarketMarket pm, BigDecimal coinPrice) {
         if (market.getMarketId() == null) {
             market.setMarketId(pm.getId());
         }
@@ -230,6 +229,12 @@ public class BtcMarketIngestionService {
             market.setMarketType(pm.getMarketTypeResolved());
         }
 
+        if(market.getCoinPriceStart() == null) {
+            market.setCoinPriceStart(coinPrice);
+            market.setCoinPriceEnd(coinPrice);
+        } else {
+            market.setCoinPriceEnd(coinPrice);
+        }
         market.setFinalVolume(pm.getVolume());
         market.setFinalLiquidity(pm.getLiquidity());
     }
@@ -305,54 +310,42 @@ public class BtcMarketIngestionService {
 
     @Transactional
     public int deactivateExpiredMarkets() {
-        List<Market> expiredMarkets = marketRepository.findExpiredActiveMarkets(Instant.now().minus(Duration.ofMinutes(15)));
+        List<Market> expiredMarkets = marketRepository.findExpiredActiveMarkets(Instant.now());
 
         for (Market market : expiredMarkets) {
-            try {
-                PolymarketMarket pm = polymarketClient.fetchMarketBySlug(market.getSlug())
-                        .block(Duration.ofSeconds(30));
-
-                if (pm != null) {
-                    // Polymarket is source of truth; fall back to Binance
-                    BigDecimal pmStart = pm.getCoinPriceStart();
-                    BigDecimal pmEnd = pm.getCoinPriceEnd();
-                    BigDecimal coinPriceEnd = pmEnd != null ? pmEnd : market.getCoinPriceEnd();
-
-                    market.setResolved(true);
-                    Instant closedTime = pm.getClosedTimeInstant();
-                    market.setResolvedAt(closedTime != null ? closedTime : market.getEndTime());
-                    market.setWinner(pm.getWinnerFromPrices());
-                    if (market.getCoinPriceStart() == null && pmStart != null) {
-                        market.setCoinPriceStart(pmStart);
-                    }
-                    market.setCoinPriceEnd(coinPriceEnd);
-                    market.setFinalVolume(pm.getVolume());
-
-                    // Calculate final liquidity from orderbook depth
-                    try {
-                        List<OrderbookResponse> orderbooks = clobClient.fetchOrderbooks(
-                                market.getClobTokenUp(), market.getClobTokenDown())
-                                .block(Duration.ofSeconds(10));
-                        Map<String, Object> orderbookUp = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenUp());
-                        Map<String, Object> orderbookDown = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenDown());
-                        market.setFinalLiquidity(calculateFinalLiquidity(orderbookUp, orderbookDown));
-                    } catch (Exception obEx) {
-                        log.warn("Failed to fetch orderbooks for final liquidity on {}: {}", market.getSlug(), obEx.getMessage());
-                        market.setFinalLiquidity(pm.getLiquidity());
-                    }
-                    log.info("Updated expired market {} — finalLiquidity={}", market.getSlug(), market.getFinalLiquidity());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to fetch final details for expired market {}: {}", market.getSlug(), e.getMessage());
-            }
-
+            String winner = determineWinner(market);
+            market.setWinner(winner);
+            market.setResolvedAt(Instant.now());
+            market.setIsResolved(true);
             market.setActive(false);
             marketRepository.save(market);
+            log.info("Resolved expired market {} — winner={}", market.getSlug(), winner);
         }
 
         if (!expiredMarkets.isEmpty()) {
             log.info("Deactivated {} expired markets", expiredMarkets.size());
         }
         return expiredMarkets.size();
+    }
+
+    private String determineWinner(Market market) {
+        BigDecimal coinPriceStart = market.getCoinPriceStart();
+        BigDecimal coinPriceEnd = market.getCoinPriceEnd();
+
+        if (coinPriceStart != null && coinPriceEnd != null) {
+            int cmp = coinPriceEnd.compareTo(coinPriceStart);
+            if (cmp > 0) return "Up";
+            if (cmp < 0) return "Down";
+        }
+
+        MarketSnapshot latestSnapshot = persistenceService.findLatestSnapshot(market.getId()).orElse(null);
+        if (latestSnapshot != null && latestSnapshot.getPriceUp() != null && latestSnapshot.getPriceDown() != null) {
+            int priceCmp = latestSnapshot.getPriceUp().compareTo(latestSnapshot.getPriceDown());
+            if (priceCmp > 0) return "Up";
+            if (priceCmp < 0) return "Down";
+        }
+
+        // Default fallback
+        return "Up";
     }
 }
