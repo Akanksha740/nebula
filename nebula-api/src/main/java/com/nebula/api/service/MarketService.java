@@ -192,6 +192,7 @@ public class MarketService {
                 .finalVolume(market.getFinalVolume())
                 .finalLiquidity(market.getFinalLiquidity())
                 .coinPriceEnd(market.getCoinPriceEnd())
+                .isResolved(market.getIsResolved())
                 .resolvedAt(market.getResolvedAt())
                 .createdAt(market.getCreatedAt())
                 .updatedAt(market.getUpdatedAt())
