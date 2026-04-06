@@ -22,6 +22,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -184,14 +186,14 @@ public class MarketService {
                 .marketType(market.getMarketType())
                 .startTime(market.getStartTime())
                 .endTime(market.getEndTime())
-                .coinPriceStart(market.getCoinPriceStart())
+                .coinPriceStart(scale2(market.getCoinPriceStart()))
                 .conditionId(market.getConditionId())
                 .clobTokenUp(market.getClobTokenUp())
                 .clobTokenDown(market.getClobTokenDown())
                 .winner(market.getWinner())
-                .finalVolume(market.getFinalVolume())
-                .finalLiquidity(market.getFinalLiquidity())
-                .coinPriceEnd(market.getCoinPriceEnd())
+                .finalVolume(scale2(market.getFinalVolume()))
+                .finalLiquidity(scale2(market.getFinalLiquidity()))
+                .coinPriceEnd(scale2(market.getCoinPriceEnd()))
                 .isResolved(market.getIsResolved())
                 .resolvedAt(market.getResolvedAt())
                 .createdAt(market.getCreatedAt())
@@ -202,9 +204,9 @@ public class MarketService {
     private MarketSnapshotDto toSnapshotDto(MarketSnapshot snapshot, boolean includeOrderbook) {
         MarketSnapshotDto.MarketSnapshotDtoBuilder builder = MarketSnapshotDto.builder()
                 .time(snapshot.getTime())
-                .coinPrice(snapshot.getCoinPrice())
-                .priceUp(snapshot.getPriceUp())
-                .priceDown(snapshot.getPriceDown());
+                .coinPrice(scale2(snapshot.getCoinPrice()))
+                .priceUp(scale2(snapshot.getPriceUp()))
+                .priceDown(scale2(snapshot.getPriceDown()));
 
         if (includeOrderbook) {
             builder.orderbookUp(snapshot.getOrderbookUp());
@@ -212,5 +214,9 @@ public class MarketService {
         }
 
         return builder.build();
+    }
+
+    private BigDecimal scale2(BigDecimal value) {
+        return value != null ? value.setScale(2, RoundingMode.HALF_UP) : null;
     }
 }

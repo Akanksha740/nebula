@@ -69,9 +69,10 @@ public class BtcMarketScheduler {
     }
 
     /**
-     * Deactivate expired markets every 7 seconds
+     * Deactivate expired markets
+     * Configure via: nebula.snapshot.deactivate-interval-ms (default 150000ms = 2.5m)
      */
-    @Scheduled(fixedRate = 450000)
+    @Scheduled(fixedRateString = "${nebula.snapshot.deactivate-interval-ms:150000}")
     public void deactivateExpiredMarkets() {
         try {
             btcMarketIngestionService.deactivateExpiredMarkets();

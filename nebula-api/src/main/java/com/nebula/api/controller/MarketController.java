@@ -119,8 +119,8 @@ public class MarketController {
         // Validate offset
         if (offset < 0) offset = 0;
 
-        log.info("Snapshots request: slug={}, coin={}, limit={}, customer={}, tier={}",
-                slug, coinEnum, limit, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
+        log.info("Snapshots request: slug={}, coin={}, limit={}, include_orderbook={}, customer={}, tier={}",
+                slug, coinEnum, limit, include_orderbook, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
         return ResponseEntity.ok(marketService.getMarketWithSnapshots(customer, slug, limit, offset, include_orderbook));
     }
 
@@ -145,8 +145,8 @@ public class MarketController {
         // Validate offset
         if (offset < 0) offset = 0;
 
-        log.info("Snapshots by marketId request: marketId={}, limit={}, customer={}, tier={}",
-                marketId, limit, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
+        log.info("Snapshots by marketId request: marketId={}, limit={}, include_orderbook={}, customer={}, tier={}",
+                marketId, limit, include_orderbook, customer != null ? customer.getEmail() : "anonymous", customer != null ? customer.getTier() : "N/A");
         return ResponseEntity.ok(marketService.getMarketWithSnapshotsByMarketId(customer, marketId, limit, offset, include_orderbook));
     }
 
