@@ -32,18 +32,4 @@ public class BtcMarketController {
             "timestamp", Instant.now().toString()
         )));
     }
-
-
-    /**
-     * Trigger immediate snapshot
-     */
-    @PostMapping("/snapshot")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> triggerSnapshot() {
-        btcMarketIngestionService.snapshotActiveMarkets();
-        
-        return ResponseEntity.ok(ApiResponse.success(Map.of(
-            "message", "Snapshot triggered",
-            "activeCount", btcMarketIngestionService.getActiveMarketCount()
-        )));
-    }
 }

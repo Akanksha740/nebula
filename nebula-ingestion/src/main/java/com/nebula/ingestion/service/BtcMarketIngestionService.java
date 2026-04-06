@@ -4,12 +4,12 @@ import com.nebula.common.entity.Coin;
 import com.nebula.common.entity.Market;
 import com.nebula.common.entity.MarketSnapshot;
 import com.nebula.ingestion.client.BinanceClient;
+import com.nebula.ingestion.client.ChainlinkClient;
 import com.nebula.ingestion.client.ClobClient;
 import com.nebula.ingestion.client.PolymarketClient;
 import com.nebula.ingestion.client.dto.OrderbookResponse;
 import com.nebula.ingestion.client.dto.PolymarketMarket;
 import com.nebula.ingestion.repository.MarketRepository;
-import com.nebula.ingestion.repository.MarketSnapshotRepository;
 import com.nebula.ingestion.util.SlugGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,11 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -33,41 +29,41 @@ public class BtcMarketIngestionService {
     private final PolymarketClient polymarketClient;
     private final ClobClient clobClient;
     private final BinanceClient binanceClient;
+    private final ChainlinkClient chainlinkClient;
     private final MarketRepository marketRepository;
-    private final MarketSnapshotRepository snapshotRepository;
     private final MarketPersistenceService persistenceService;
 
     /**
-     * Generate slugs for all market types based on current UTC time,
-     * ensure each market exists in DB, and take a snapshot.
-     */
-    public void snapshotActiveMarkets() {
-        snapshotSlugs(SlugGenerator.generateCurrentSlugs());
-    }
-
-    /**
-     * Snapshot short-duration markets (5m, 15m, 1hr).
+     * Snapshot short-duration markets (5m, 15m, 1hr) using Chainlink prices.
      */
     public void snapshotShortMarkets() {
-        snapshotSlugs(SlugGenerator.generateShortMarketSlugs(Instant.now()));
+        Map<Coin, BigDecimal> chainlinkPrices = fetchChainlinkPrices();
+        Map<Coin, BigDecimal> binanceFallback = chainlinkPrices.containsValue(null) ? fetchBinancePrices() : Map.of();
+        snapshotSlugs(SlugGenerator.generateShortMarketSlugs(Instant.now()), chainlinkPrices, binanceFallback);
     }
 
     /**
-     * Snapshot long-duration markets (4h, 24h).
+     * Snapshot long-duration markets (4h, 24h) using Binance prices.
      */
     public void snapshotLongMarkets() {
-        snapshotSlugs(SlugGenerator.generateLongMarketSlugs(Instant.now()));
+        Map<Coin, BigDecimal> binancePrices = fetchBinancePrices();
+        snapshotSlugs(SlugGenerator.generateLongMarketSlugs(Instant.now()), binancePrices, Map.of());
     }
 
-    private void snapshotSlugs(List<String> slugs) {
-        Map<Coin, BigDecimal> coinPrices = fetchAllCoinPrices();
-
+    private void snapshotSlugs(List<String> slugs, Map<Coin, BigDecimal> primaryPrices, Map<Coin, BigDecimal> fallbackPrices) {
         int snapshotCount = 0;
         for (String slug : slugs) {
             try {
                 Market market = findOrCreateMarket(slug, coinPrices);
                 if (market != null && market.getActive()) {
-                    BigDecimal coinPrice = coinPrices.get(market.getCoin());
+                    Coin coin = market.getCoin();
+                    BigDecimal coinPrice = primaryPrices.get(coin);
+                    if (coinPrice == null) {
+                        coinPrice = fallbackPrices.get(coin);
+                        if (coinPrice != null) {
+                            log.warn("Primary price unavailable for {} on {}, using fallback", coin, slug);
+                        }
+                    }
                     fetchAndSaveSnapshot(market, coinPrice);
                     snapshotCount++;
                 }
@@ -92,8 +88,7 @@ public class BtcMarketIngestionService {
         }
 
         try {
-            PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug)
-                    .block(Duration.ofSeconds(30));
+            PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug).block(Duration.ofSeconds(30));
             if (pm == null) {
                 log.debug("Market not found on Polymarket for slug: {}", slug);
                 return null;
@@ -141,8 +136,7 @@ public class BtcMarketIngestionService {
         String slug = market.getSlug();
 
         try {
-            PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug)
-                .block(Duration.ofSeconds(30));
+            PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug).block(Duration.ofSeconds(30));
 
             if (pm == null) {
                 log.warn("Market {} not found", slug);
@@ -178,7 +172,6 @@ public class BtcMarketIngestionService {
                 persistenceService.saveMarket(market);
             }
 
-            // Create snapshot
             MarketSnapshot snapshot = MarketSnapshot.builder()
                     .market(market)
                     .time(Instant.now())
@@ -190,10 +183,8 @@ public class BtcMarketIngestionService {
                     .orderbookUp(orderbookUp)
                     .orderbookDown(orderbookDown)
                     .build();
-            
             persistenceService.saveSnapshot(snapshot);
             log.debug("Snapshot {} - Up: {}, Down: {}", slug, pm.getPriceUp(), pm.getPriceDown());
-            
         } catch (Exception e) {
             log.warn("Error fetching market {}: {}", slug, e.getMessage());
             if (e.getMessage() != null && e.getMessage().contains("404")) {
@@ -214,9 +205,11 @@ public class BtcMarketIngestionService {
     }
 
     /**
-     * Fetch prices for all active coins in a single pass (one Binance call per coin).
+     * Fetch prices from Binance (used for long markets: 4h, 24h,
+     * and as fallback for short markets when Chainlink is unavailable).
+>>>>>>> cd13c11 (Using chain link for 5m and 15m market)
      */
-    private Map<Coin, BigDecimal> fetchAllCoinPrices() {
+    private Map<Coin, BigDecimal> fetchBinancePrices() {
         Map<Coin, BigDecimal> prices = new EnumMap<>(Coin.class);
         BigDecimal btcPrice = binanceClient.fetchBtcPrice().block(Duration.ofSeconds(5));
         BigDecimal ethPrice = binanceClient.fetchEthPrice().block(Duration.ofSeconds(5));
@@ -225,6 +218,22 @@ public class BtcMarketIngestionService {
         prices.put(Coin.ETH, ethPrice);
         prices.put(Coin.SOL, solPrice);
         log.info("Binance prices - BTC: {}, ETH: {}, SOL: {}", btcPrice, ethPrice, solPrice);
+        return prices;
+    }
+
+    /**
+     * Read cached Chainlink prices (populated via WebSocket, zero latency).
+     * Used for short markets: 5m, 15m, 1hr.
+     */
+    private Map<Coin, BigDecimal> fetchChainlinkPrices() {
+        Map<Coin, BigDecimal> prices = new EnumMap<>(Coin.class);
+        BigDecimal btcPrice = chainlinkClient.getBtcPrice();
+        BigDecimal ethPrice = chainlinkClient.getEthPrice();
+        prices.put(Coin.BTC, btcPrice);
+        prices.put(Coin.ETH, ethPrice);
+        if (btcPrice != null || ethPrice != null) {
+            log.debug("Chainlink cached prices - BTC: {}, ETH: {}", btcPrice, ethPrice);
+        }
         return prices;
     }
 
@@ -237,17 +246,17 @@ public class BtcMarketIngestionService {
     private boolean isMarketResolved(PolymarketMarket market) {
         if (Boolean.TRUE.equals(market.getClosed())) return true;
         if (Boolean.FALSE.equals(market.getActive())) return true;
-        
+
         String status = market.getStatus();
         if (status != null) {
             String lower = status.toLowerCase();
             if (lower.contains("resolved") || lower.contains("closed")) return true;
         }
-        
+
         if (market.getEndDate() != null) {
             if (Instant.now().isAfter(market.getEndDate().plusSeconds(120))) return true;
         }
-        
+
         return false;
     }
 
@@ -279,9 +288,7 @@ public class BtcMarketIngestionService {
     }
 
     public List<String> getActiveMarketSlugs() {
-        return marketRepository.findCurrentlyActiveMarkets(Instant.now()).stream()
-                .map(Market::getSlug)
-                .toList();
+        return marketRepository.findCurrentlyActiveMarkets(Instant.now()).stream().map(Market::getSlug).toList();
     }
 
     @Transactional
