@@ -63,4 +63,8 @@ public class MarketPersistenceService {
     public void saveSnapshot(MarketSnapshot snapshot) {
         snapshotRepository.save(snapshot);
     }
+
+    public Optional<MarketSnapshot> findLatestSnapshot(UUID marketId) {
+        return snapshotRepository.findFirstByMarketIdOrderByTimeDesc(marketId);
+    }
 }
