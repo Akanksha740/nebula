@@ -154,19 +154,6 @@ public class BtcMarketIngestionService {
 
             // Check if resolved
             boolean isResolved = isMarketResolved(pm);
-            if (isResolved && !market.getResolved()) {
-                market.setActive(false);
-                market.setResolved(true);
-                Instant closedTime = pm.getClosedTimeInstant();
-                market.setResolvedAt(closedTime != null ? closedTime : Instant.now());
-                BigDecimal pmEnd = pm.getCoinPriceEnd();
-                market.setCoinPriceEnd(pmEnd != null ? pmEnd : coinPrice);
-                market.setFinalVolume(pm.getVolume());
-                market.setFinalLiquidity(pm.getLiquidity());
-                log.info("Market {} is RESOLVED", slug);
-            }
-
-            persistenceService.saveMarket(market);
 
             // Fetch both orderbooks in a single API call
             List<OrderbookResponse> orderbooks = clobClient.fetchOrderbooks(
@@ -175,6 +162,18 @@ public class BtcMarketIngestionService {
 
             Map<String, Object> orderbookUp = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenUp());
             Map<String, Object> orderbookDown = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenDown());
+
+            if (isResolved && !market.getResolved()) {
+                market.setActive(false);
+                market.setResolved(true);
+                Instant closedTime = pm.getClosedTimeInstant();
+                market.setResolvedAt(closedTime != null ? closedTime : Instant.now());
+                BigDecimal pmEnd = pm.getCoinPriceEnd();
+                market.setCoinPriceEnd(pmEnd != null ? pmEnd : coinPrice);
+                log.info("Market {} is RESOLVED", slug);
+            }
+
+            persistenceService.saveMarket(market);
 
             // Create snapshot
             MarketSnapshot snapshot = MarketSnapshot.builder()
@@ -230,6 +229,9 @@ public class BtcMarketIngestionService {
         if (market.getMarketType() == null) {
             market.setMarketType(pm.getMarketTypeResolved());
         }
+
+        market.setFinalVolume(pm.getVolume());
+        market.setFinalLiquidity(pm.getLiquidity());
     }
 
     /**
@@ -268,6 +270,29 @@ public class BtcMarketIngestionService {
         return false;
     }
 
+    /**
+     * Calculate final liquidity from orderbook depth:
+     * Sum(orderbook_up.asks sizes) + Sum(orderbook_down.bids sizes)
+     */
+    @SuppressWarnings("unchecked")
+    private BigDecimal calculateFinalLiquidity(Map<String, Object> orderbookUp, Map<String, Object> orderbookDown) {
+        BigDecimal total = BigDecimal.ZERO;
+        total = total.add(sumOrderbookSizes((List<Map<String, Object>>) orderbookUp.getOrDefault("asks", List.of())));
+        total = total.add(sumOrderbookSizes((List<Map<String, Object>>) orderbookDown.getOrDefault("bids", List.of())));
+        return total;
+    }
+
+    private BigDecimal sumOrderbookSizes(List<Map<String, Object>> levels) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Map<String, Object> level : levels) {
+            Object size = level.get("size");
+            if (size instanceof Number) {
+                sum = sum.add(BigDecimal.valueOf(((Number) size).doubleValue()));
+            }
+        }
+        return sum;
+    }
+
     public int getActiveMarketCount() {
         return marketRepository.findCurrentlyActiveMarkets(Instant.now()).size();
     }
@@ -302,8 +327,20 @@ public class BtcMarketIngestionService {
                     }
                     market.setCoinPriceEnd(coinPriceEnd);
                     market.setFinalVolume(pm.getVolume());
-                    market.setFinalLiquidity(pm.getLiquidity());
-                    log.info("Updated expired market {}", market.getSlug());
+
+                    // Calculate final liquidity from orderbook depth
+                    try {
+                        List<OrderbookResponse> orderbooks = clobClient.fetchOrderbooks(
+                                market.getClobTokenUp(), market.getClobTokenDown())
+                                .block(Duration.ofSeconds(10));
+                        Map<String, Object> orderbookUp = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenUp());
+                        Map<String, Object> orderbookDown = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenDown());
+                        market.setFinalLiquidity(calculateFinalLiquidity(orderbookUp, orderbookDown));
+                    } catch (Exception obEx) {
+                        log.warn("Failed to fetch orderbooks for final liquidity on {}: {}", market.getSlug(), obEx.getMessage());
+                        market.setFinalLiquidity(pm.getLiquidity());
+                    }
+                    log.info("Updated expired market {} — finalLiquidity={}", market.getSlug(), market.getFinalLiquidity());
                 }
             } catch (Exception e) {
                 log.warn("Failed to fetch final details for expired market {}: {}", market.getSlug(), e.getMessage());
