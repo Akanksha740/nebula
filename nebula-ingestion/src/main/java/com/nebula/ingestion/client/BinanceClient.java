@@ -37,6 +37,13 @@ public class BinanceClient {
     }
 
     /**
+     * Fetch latest SOL/USDT price from Binance
+     */
+    public Mono<BigDecimal> fetchSolPrice() {
+        return fetchPrice("SOLUSDT");
+    }
+
+    /**
      * Fetch latest price for a given symbol from Binance
      */
     public Mono<BigDecimal> fetchPrice(String symbol) {

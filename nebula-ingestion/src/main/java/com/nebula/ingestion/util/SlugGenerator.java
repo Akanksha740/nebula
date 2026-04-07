@@ -26,6 +26,14 @@ import java.util.Locale;
  *         OR ethereum-up-or-down-{month}-{day}-{hour}{am/pm}-et
  *   4h  → eth-updown-4h-{epoch}
  *   24h → ethereum-up-or-down-on-{month}-{day}-{year}
+ *
+ * SOL slug patterns:
+ *   5m  → sol-updown-5m-{epoch}
+ *   15m → sol-updown-15m-{epoch}
+ *   1h  → solana-up-or-down-{month}-{day}-{year}-{hour}{am/pm}-et
+ *         OR solana-up-or-down-{month}-{day}-{hour}{am/pm}-et
+ *   4h  → sol-updown-4h-{epoch}
+ *   24h → solana-up-or-down-on-{month}-{day}-{year}
  */
 public final class SlugGenerator {
 
@@ -48,7 +56,7 @@ public final class SlugGenerator {
      * Generate slugs for all market types (BTC + ETH) based on a given instant.
      */
     public static List<String> generateSlugs(Instant now) {
-        List<String> slugs = new ArrayList<>(12);
+        List<String> slugs = new ArrayList<>(18);
         slugs.addAll(generateShortMarketSlugs(now));
         slugs.addAll(generateLongMarketSlugs(now));
         return slugs;
@@ -58,7 +66,7 @@ public final class SlugGenerator {
      * Generate slugs for short-duration markets (5m, 15m, 1hr).
      */
     public static List<String> generateShortMarketSlugs(Instant now) {
-        List<String> slugs = new ArrayList<>(8);
+        List<String> slugs = new ArrayList<>(12);
         slugs.add(generate5mSlug(now));
         slugs.add(generate15mSlug(now));
         slugs.add(generate1hSlug(now));
@@ -67,6 +75,10 @@ public final class SlugGenerator {
         slugs.add(generateEth15mSlug(now));
         slugs.add(generateEth1hSlug(now));
         slugs.add(generateEth1hSlugNoYear(now));
+        slugs.add(generateSol5mSlug(now));
+        slugs.add(generateSol15mSlug(now));
+        slugs.add(generateSol1hSlug(now));
+        slugs.add(generateSol1hSlugNoYear(now));
         return slugs;
     }
 
@@ -74,11 +86,13 @@ public final class SlugGenerator {
      * Generate slugs for long-duration markets (4h, 24h).
      */
     public static List<String> generateLongMarketSlugs(Instant now) {
-        List<String> slugs = new ArrayList<>(4);
+        List<String> slugs = new ArrayList<>(6);
         slugs.add(generate4hSlug(now));
         slugs.add(generate24hSlug(now));
         slugs.add(generateEth4hSlug(now));
         slugs.add(generateEth24hSlug(now));
+        slugs.add(generateSol4hSlug(now));
+        slugs.add(generateSol24hSlug(now));
         return slugs;
     }
 
@@ -256,5 +270,91 @@ public final class SlugGenerator {
         int year = endInEt.getYear();
 
         return String.format("ethereum-up-or-down-on-%s-%d-%d", month, day, year);
+    }
+
+    // ── SOL slug generators ──
+
+    /**
+     * 5-minute SOL market slug: sol-updown-5m-{epoch}
+     */
+    public static String generateSol5mSlug(Instant now) {
+        long epoch = now.getEpochSecond();
+        long slot = (epoch / SECONDS_5M) * SECONDS_5M;
+        return "sol-updown-5m-" + slot;
+    }
+
+    /**
+     * 15-minute SOL market slug: sol-updown-15m-{epoch}
+     */
+    public static String generateSol15mSlug(Instant now) {
+        long epoch = now.getEpochSecond();
+        long slot = (epoch / SECONDS_15M) * SECONDS_15M;
+        return "sol-updown-15m-" + slot;
+    }
+
+    /**
+     * 1-hour SOL market slug: solana-up-or-down-{month}-{day}-{year}-{hour}{am/pm}-et
+     */
+    public static String generateSol1hSlug(Instant now) {
+        ZonedDateTime et = now.atZone(ET);
+        ZonedDateTime startOfHour = et.truncatedTo(ChronoUnit.HOURS);
+
+        String month = startOfHour.getMonth().getDisplayName(TextStyle.FULL, Locale.US).toLowerCase();
+        int day = startOfHour.getDayOfMonth();
+        int year = startOfHour.getYear();
+        int hour24 = startOfHour.getHour();
+        String ampm = hour24 < 12 ? "am" : "pm";
+        int displayHour = hour24 % 12;
+        if (displayHour == 0) displayHour = 12;
+
+        return String.format("solana-up-or-down-%s-%d-%d-%d%s-et",
+                month, day, year, displayHour, ampm);
+    }
+
+    /**
+     * 1-hour SOL market slug without year: solana-up-or-down-{month}-{day}-{hour}{am/pm}-et
+     */
+    public static String generateSol1hSlugNoYear(Instant now) {
+        ZonedDateTime et = now.atZone(ET);
+        ZonedDateTime startOfHour = et.truncatedTo(ChronoUnit.HOURS);
+
+        String month = startOfHour.getMonth().getDisplayName(TextStyle.FULL, Locale.US).toLowerCase();
+        int day = startOfHour.getDayOfMonth();
+        int hour24 = startOfHour.getHour();
+        String ampm = hour24 < 12 ? "am" : "pm";
+        int displayHour = hour24 % 12;
+        if (displayHour == 0) displayHour = 12;
+
+        return String.format("solana-up-or-down-%s-%d-%d%s-et",
+                month, day, displayHour, ampm);
+    }
+
+    /**
+     * 4-hour SOL market slug: sol-updown-4h-{epoch}
+     */
+    public static String generateSol4hSlug(Instant now) {
+        long epoch = now.getEpochSecond();
+        long slot = (epoch / SECONDS_4H) * SECONDS_4H;
+        return "sol-updown-4h-" + slot;
+    }
+
+    /**
+     * 24-hour SOL market slug: solana-up-or-down-on-{month}-{day}-{year}
+     */
+    public static String generateSol24hSlug(Instant now) {
+        ZonedDateTime utc = now.atZone(ZoneOffset.UTC);
+        ZonedDateTime windowEnd;
+        if (utc.getHour() >= 16) {
+            windowEnd = utc.toLocalDate().plusDays(1).atTime(16, 0).atZone(ZoneOffset.UTC);
+        } else {
+            windowEnd = utc.toLocalDate().atTime(16, 0).atZone(ZoneOffset.UTC);
+        }
+
+        ZonedDateTime endInEt = windowEnd.withZoneSameInstant(ET);
+        String month = endInEt.getMonth().getDisplayName(TextStyle.FULL, Locale.US).toLowerCase();
+        int day = endInEt.getDayOfMonth();
+        int year = endInEt.getYear();
+
+        return String.format("solana-up-or-down-on-%s-%d-%d", month, day, year);
     }
 }

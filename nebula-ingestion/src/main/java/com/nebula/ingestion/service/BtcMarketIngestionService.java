@@ -246,9 +246,11 @@ public class BtcMarketIngestionService {
         Map<Coin, BigDecimal> prices = new EnumMap<>(Coin.class);
         BigDecimal btcPrice = binanceClient.fetchBtcPrice().block(Duration.ofSeconds(5));
         BigDecimal ethPrice = binanceClient.fetchEthPrice().block(Duration.ofSeconds(5));
+        BigDecimal solPrice = binanceClient.fetchSolPrice().block(Duration.ofSeconds(5));
         prices.put(Coin.BTC, btcPrice);
         prices.put(Coin.ETH, ethPrice);
-        log.info("Binance prices - BTC: {}, ETH: {}", btcPrice, ethPrice);
+        prices.put(Coin.SOL, solPrice);
+        log.info("Binance prices - BTC: {}, ETH: {}, SOL: {}", btcPrice, ethPrice, solPrice);
         return prices;
     }
 

@@ -167,7 +167,7 @@ public class MarketController {
             return Coin.valueOf(coin.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Unsupported coin: " + coin + ". Only BTC and ETH are supported as of now");
+                    "Unsupported coin: " + coin + ". Supported coins: BTC, ETH, SOL");
         }
     }
 

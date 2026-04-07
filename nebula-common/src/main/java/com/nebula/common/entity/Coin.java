@@ -2,7 +2,8 @@ package com.nebula.common.entity;
 
 public enum Coin {
     BTC,
-    ETH;
+    ETH,
+    SOL;
 
     public static Coin fromSlug(String slug) {
         if (slug == null || slug.isEmpty()) {
@@ -23,7 +24,12 @@ public enum Coin {
         if ("eth".equals(firstWord) || "ethereum".equals(firstWord)) {
             return ETH;
         }
-        
+
+        // SOL: "sol" or "solana"
+        if ("sol".equals(firstWord) || "solana".equals(firstWord)) {
+            return SOL;
+        }
+
         return null;
     }
 }
