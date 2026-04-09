@@ -13,6 +13,8 @@ public class TierConfig {
         SubscriptionTier.STARTER, new TierLimits(60, 1_000, 1, 1, 50, 50, 24, 24, 5),
         // Pro ($11/mo) — 300 req/min, 50,000 req/day, 3 API keys, unlimited market access
         SubscriptionTier.PRO, new TierLimits(300, 50_000, 3, 1, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE),
+        // Pro Trial (7-day free) — same limits as Pro
+        SubscriptionTier.PRO_TRIAL, new TierLimits(300, 50_000, 3, 1, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE),
         // Enterprise — 33 API keys, unlimited everything else
         SubscriptionTier.ENTERPRISE, new TierLimits(Integer.MAX_VALUE, Integer.MAX_VALUE, 33, 1, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE)
     );

@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -21,4 +23,7 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     @Query("SELECT c FROM Customer c WHERE c.passwordResetToken = :token")
     Optional<Customer> findByPasswordResetToken(@Param("token") String token);
+
+    @Query("SELECT c FROM Customer c WHERE c.tier = 'PRO_TRIAL' AND c.proTrialExpiresAt IS NOT NULL AND c.proTrialExpiresAt < :now")
+    List<Customer> findExpiredTrials(@Param("now") Instant now);
 }

@@ -151,6 +151,7 @@ public class ApiAccessService {
         return switch (currentTier) {
             case STARTER -> "PRO";
             case PRO -> "ENTERPRISE";
+            case PRO_TRIAL -> "PRO";
             case ENTERPRISE -> "ENTERPRISE";
         };
     }
@@ -158,6 +159,7 @@ public class ApiAccessService {
     private String getNextTierForResolution(SubscriptionTier currentTier) {
         return switch (currentTier) {
             case STARTER -> "PRO";
+            case PRO_TRIAL -> "PRO";
             case PRO, ENTERPRISE -> "ENTERPRISE";
         };
     }

@@ -3,6 +3,7 @@ package com.nebula.api.controller;
 import com.nebula.api.service.ApiKeyService;
 import com.nebula.api.service.AuthService;
 import com.nebula.api.service.BillingService;
+import com.nebula.api.service.ProTrialService;
 import com.nebula.api.service.UsageTrackingService;
 import com.nebula.common.dto.ApiKeyDto;
 import com.nebula.common.dto.UsageStatsDto;
@@ -37,6 +38,7 @@ public class AccountController {
     private final UsageTrackingService usageTrackingService;
     private final BillingService billingService;
     private final AuthService authService;
+    private final ProTrialService proTrialService;
 
     @GetMapping("/api-keys")
     @Operation(summary = "List all API keys")
@@ -96,6 +98,21 @@ public class AccountController {
         log.info("Checkout requested: customer={}, tier={}", customer.getEmail(), tier);
         String checkoutUrl = billingService.getCheckoutUrl(customer, tier);
         return ResponseEntity.ok(ApiResponse.success(Map.of("checkoutUrl", checkoutUrl)));
+    }
+
+    @PostMapping("/activate-pro-trial")
+    @Operation(summary = "Activate free 7-day Pro trial for eligible users")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> activateProTrial(
+            @AuthenticationPrincipal Customer customer) {
+
+        requireAuth(customer);
+        log.info("Pro trial activation requested: customer={}", customer.getEmail());
+        Customer updated = proTrialService.activateProTrial(customer);
+        Map<String, Object> response = Map.of(
+                "tier", updated.getTier().name(),
+                "trialExpiresAt", updated.getProTrialExpiresAt().toString()
+        );
+        return ResponseEntity.ok(ApiResponse.success(response, "Pro trial activated for 7 days"));
     }
 
     @PostMapping("/change-password")
