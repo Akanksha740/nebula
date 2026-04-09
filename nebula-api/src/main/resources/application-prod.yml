@@ -74,3 +74,6 @@ logging:
     com.nebula: INFO
     org.springframework: WARN
     org.hibernate: WARN
+  pattern:
+    dateformat: "yyyy-MM-dd HH:mm:ss.SSS"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

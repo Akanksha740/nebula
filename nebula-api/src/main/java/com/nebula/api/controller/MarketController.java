@@ -153,8 +153,13 @@ public class MarketController {
     private Coin coinFromSlug(String slug) {
         Coin coin = Coin.fromSlug(slug);
         if (coin == null) {
+            String supported = java.util.Arrays.stream(Coin.values())
+                    .map(Enum::name)
+                    .collect(java.util.stream.Collectors.joining(", "));
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Could not determine coin from slug: " + slug);
+                    "Unsupported market slug: '" + slug + "'. We currently support "
+                            + supported + " markets — please use a supported market slug "
+                            + "(e.g. starting with btc-, eth-, or sol-).");
         }
         return coin;
     }
