@@ -17,5 +17,6 @@ public class CustomerDto {
     private Customer.SubscriptionTier tier;
     private Boolean isActive;
     private Boolean emailVerified;
+    private Instant proTrialExpiresAt;
     private Instant createdAt;
 }

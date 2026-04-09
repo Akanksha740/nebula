@@ -280,6 +280,7 @@ public class AuthService {
                 .tier(customer.getTier())
                 .isActive(customer.getIsActive())
                 .emailVerified(customer.getEmailVerified())
+                .proTrialExpiresAt(customer.getProTrialExpiresAt())
                 .createdAt(customer.getCreatedAt())
                 .build();
     }

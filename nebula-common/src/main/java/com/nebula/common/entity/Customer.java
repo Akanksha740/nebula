@@ -38,6 +38,9 @@ public class Customer {
     @Builder.Default
     private SubscriptionTier tier = SubscriptionTier.STARTER;
 
+    @Column(name = "pro_trial_expires_at")
+    private Instant proTrialExpiresAt;
+
     @Column(name = "payment_customer_id")
     private String paymentCustomerId;
 
@@ -88,6 +91,7 @@ public class Customer {
     public enum SubscriptionTier {
         STARTER,
         PRO,
+        PRO_TRIAL,
         ENTERPRISE
     }
 }

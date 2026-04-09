@@ -124,6 +124,10 @@ public class BillingService {
         Customer.SubscriptionTier previousTier = customer.getTier();
         customer.setTier(newTier);
         customer.setPaymentSubscriptionId(subscriptionId);
+        // Clear trial expiry so the scheduler doesn't downgrade a paid user
+        if (previousTier == Customer.SubscriptionTier.PRO_TRIAL) {
+            customer.setProTrialExpiresAt(null);
+        }
         customerRepository.save(customer);
 
         clearRateLimitCache(customer.getId());
