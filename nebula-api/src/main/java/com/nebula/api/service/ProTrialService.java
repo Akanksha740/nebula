@@ -31,7 +31,8 @@ public class ProTrialService {
             "xfddwhh@gmail.com", "abhijaipur2011@gmail.com", "yair319732@gmail.com",
             "petitkanediallo@gmail.com", "yairelmaliah31973232@gmail.com", "scantarajr@gmail.com",
             "zakariyabeg@gmail.com", "anurag.s996889@gmail.com", "diyuan.dai@gmail.com",
-            "jeremy.lecat@gmail.com", "lamqt710@gmail.com", "cyansce@gmail.com"
+            "jeremy.lecat@gmail.com", "lamqt710@gmail.com", "cyansce@gmail.com",
+            "oprakash.nitp@gmail.com", "omprakash.nitp.1996@gmail.com"
     );
 
     private final CustomerRepository customerRepository;
