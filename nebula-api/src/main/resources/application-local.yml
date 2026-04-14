@@ -56,6 +56,14 @@ dodo:
   products:
     pro: pdt_0NbNc25MioqkvyPw8qbhw
 
+# Cryptomus Crypto Payments Configuration
+cryptomus:
+  merchant-id: ${CRYPTOMUS_MERCHANT_ID:}
+  api-key: ${CRYPTOMUS_API_KEY:}
+  webhook-url: ${CRYPTOMUS_WEBHOOK_URL:http://localhost:1010/v1/webhook/cryptomus}
+  pro-amount: "11"
+  pro-currency: USD
+
 # OpenAPI
 springdoc:
   api-docs:

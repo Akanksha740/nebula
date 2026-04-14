@@ -1,6 +1,7 @@
 package com.nebula.api.controller;
 
 import com.nebula.api.service.BillingService;
+import com.nebula.api.service.CryptomusService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,7 @@ public class WebhookController {
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final BillingService billingService;
+    private final CryptomusService cryptomusService;
 
     /**
      * Dodo Payments webhook endpoint.
@@ -139,6 +141,91 @@ public class WebhookController {
     private String getStringFromMetadata(Map<String, Object> metadata, String key) {
         Object value = metadata.get(key);
         return value != null ? value.toString() : null;
+    }
+
+    /**
+     * Cryptomus webhook endpoint.
+     * See: https://doc.cryptomus.com/merchant-api/payments/webhook
+     *
+     * Cryptomus sends a POST when invoice status changes.
+     * Payload fields: type, uuid, order_id, amount, payment_amount, status,
+     *                 is_final, additional_data, sign, network, currency, etc.
+     *
+     * Signature verification:
+     *   1. Extract 'sign' from body, remove it
+     *   2. Re-encode remaining data as JSON
+     *   3. sign = MD5( base64(json) + apiPaymentKey )
+     *
+     * Statuses we act on:
+     *   - paid      → payment completed exactly
+     *   - paid_over → client overpaid (still successful)
+     *
+     * We also check is_final to ensure the invoice is finalized.
+     */
+    @PostMapping("/cryptomus")
+    @SuppressWarnings("unchecked")
+    public ResponseEntity<String> handleCryptomusWebhook(@RequestBody String rawBody) {
+
+        Map<String, Object> payload;
+        try {
+            // Jackson readValue with Map.class produces LinkedHashMap — preserves key order
+            payload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(rawBody, Map.class);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Invalid JSON");
+        }
+
+        // Step 1: Extract and remove 'sign' before verification
+        String receivedSign = payload.get("sign") != null ? payload.get("sign").toString() : null;
+
+        // Step 2: Build JSON body without 'sign' for verification (preserving key order)
+        Map<String, Object> bodyWithoutSign = new java.util.LinkedHashMap<>(payload);
+        bodyWithoutSign.remove("sign");
+        String bodyForVerification;
+        try {
+            bodyForVerification = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(bodyWithoutSign);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Serialization error");
+        }
+
+        // Step 3: Verify sign — CryptomusService handles base64 + MD5 + slash escaping
+        if (!cryptomusService.verifyWebhookSign(bodyForVerification, receivedSign)) {
+            log.warn("Invalid Cryptomus webhook signature");
+            return ResponseEntity.status(401).body("Invalid signature");
+        }
+
+        String status = (String) payload.get("status");
+        String orderId = (String) payload.get("order_id");
+        String uuid = (String) payload.get("uuid");
+        String additionalData = (String) payload.get("additional_data");
+        Object isFinalObj = payload.get("is_final");
+        boolean isFinal = isFinalObj instanceof Boolean ? (Boolean) isFinalObj : false;
+
+        log.info("Received Cryptomus webhook: status={}, is_final={}, order_id={}, uuid={}",
+                status, isFinal, orderId, uuid);
+
+        if ("paid".equals(status) || "paid_over".equals(status)) {
+            if (additionalData == null || !additionalData.contains("|")) {
+                log.warn("Cryptomus webhook missing additional_data: order_id={}", orderId);
+                return ResponseEntity.badRequest().body("Missing additional_data");
+            }
+            String[] parts = additionalData.split("\\|", 2);
+            String customerId = parts[0];
+            String tierName = parts[1];
+
+            try {
+                cryptomusService.handlePaymentCompleted(customerId, tierName);
+            } catch (Exception e) {
+                log.error("Error processing Cryptomus payment (order={}, uuid={}): {}",
+                        orderId, uuid, e.getMessage(), e);
+                return ResponseEntity.internalServerError().body("Processing error");
+            }
+        } else if ("cancel".equals(status) || "fail".equals(status) || "system_fail".equals(status)) {
+            log.warn("Cryptomus payment failed: status={}, order_id={}, uuid={}", status, orderId, uuid);
+        } else {
+            log.debug("Cryptomus status update: status={}, order_id={}", status, orderId);
+        }
+
+        return ResponseEntity.ok("OK");
     }
 
     /**
