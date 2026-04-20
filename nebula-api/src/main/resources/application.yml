@@ -60,7 +60,7 @@ nowpayments:
   api-key: ${NOWPAYMENTS_API_KEY:}
   ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
   webhook-url: ${NOWPAYMENTS_WEBHOOK_URL:}
-  pro-amount: "11"
+  pro-amount: "20"
   pro-currency: usd
 
 # Dodo Payments Configuration
