@@ -1,6 +1,7 @@
 package com.nebula.api.controller;
 
 import com.nebula.api.service.BillingService;
+import com.nebula.api.service.NowPaymentsService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Map;
+import java.util.TreeMap;
 
 @RestController
 @RequestMapping("/v1/webhook")
@@ -22,6 +24,7 @@ public class WebhookController {
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final BillingService billingService;
+    private final NowPaymentsService nowPaymentsService;
 
     /**
      * Dodo Payments webhook endpoint.
@@ -139,6 +142,90 @@ public class WebhookController {
     private String getStringFromMetadata(Map<String, Object> metadata, String key) {
         Object value = metadata.get(key);
         return value != null ? value.toString() : null;
+    }
+
+    /**
+     * NOWPayments IPN webhook endpoint.
+     * See: https://documenter.getpostman.com/view/7907941/2s93JusNJt#ipn-callbacks
+     *
+     * NOWPayments sends a POST when payment status changes.
+     * Payload fields: payment_id, payment_status, pay_address, price_amount,
+     *                 price_currency, pay_amount, pay_currency, order_id,
+     *                 order_description, outcome_amount, outcome_currency, etc.
+     *
+     * Signature verification:
+     *   1. Sort JSON body keys alphabetically
+     *   2. HMAC-SHA512(sorted_json, ipn_secret)
+     *   3. Compare with 'x-nowpayments-sig' header
+     *
+     * Statuses we act on:
+     *   - finished       → payment completed
+     *   - partially_paid → log warning (underpayment)
+     */
+    @PostMapping("/nowpayments")
+    @SuppressWarnings("unchecked")
+    public ResponseEntity<String> handleNowPaymentsWebhook(
+            @RequestBody String rawBody,
+            @RequestHeader(value = "x-nowpayments-sig", required = false) String signature) {
+
+        Map<String, Object> payload;
+        try {
+            payload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(rawBody, Map.class);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Invalid JSON");
+        }
+
+        // Verify IPN signature — NOWPayments requires sorted keys for HMAC
+        String sortedJson;
+        try {
+            TreeMap<String, Object> sorted = new TreeMap<>(payload);
+            sortedJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(sorted);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Serialization error");
+        }
+
+        if (!nowPaymentsService.verifyIpnSignature(sortedJson, signature)) {
+            log.warn("Invalid NOWPayments IPN signature");
+            return ResponseEntity.status(401).body("Invalid signature");
+        }
+
+        String paymentStatus = (String) payload.get("payment_status");
+        String orderId = (String) payload.get("order_id");
+        Object paymentId = payload.get("payment_id");
+
+        log.info("Received NOWPayments webhook: payment_status={}, order_id={}, payment_id={}",
+                paymentStatus, orderId, paymentId);
+
+        if ("finished".equals(paymentStatus)) {
+            // order_id format: nebula_<customerId>_<timestamp>
+            if (orderId == null || !orderId.startsWith("nebula_")) {
+                log.warn("NOWPayments webhook with invalid order_id: {}", orderId);
+                return ResponseEntity.badRequest().body("Invalid order_id");
+            }
+
+            String[] parts = orderId.split("_", 3);
+            if (parts.length < 3) {
+                log.warn("NOWPayments webhook order_id missing parts: {}", orderId);
+                return ResponseEntity.badRequest().body("Invalid order_id format");
+            }
+            String customerId = parts[1];
+
+            try {
+                nowPaymentsService.handlePaymentCompleted(customerId, "PRO");
+            } catch (Exception e) {
+                log.error("Error processing NOWPayments payment (order={}, payment_id={}): {}",
+                        orderId, paymentId, e.getMessage(), e);
+                return ResponseEntity.internalServerError().body("Processing error");
+            }
+        } else if ("partially_paid".equals(paymentStatus)) {
+            log.warn("NOWPayments partial payment: order_id={}, payment_id={}", orderId, paymentId);
+        } else if ("failed".equals(paymentStatus) || "expired".equals(paymentStatus)) {
+            log.warn("NOWPayments payment failed/expired: status={}, order_id={}", paymentStatus, orderId);
+        } else {
+            log.debug("NOWPayments status update: status={}, order_id={}", paymentStatus, orderId);
+        }
+
+        return ResponseEntity.ok("OK");
     }
 
     /**

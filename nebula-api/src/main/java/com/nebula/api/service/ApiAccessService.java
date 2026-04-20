@@ -38,6 +38,7 @@ public class ApiAccessService {
         "/v1/auth/reset-password",
         "/v1/auth/logout",
         "/v1/webhook/dodo",
+        "/v1/webhook/nowpayments",
         "/v1/admin",
         "/swagger-ui",
         "/v3/api-docs"
@@ -108,10 +109,6 @@ public class ApiAccessService {
 
     public long getRemainingRequests(Customer customer) {
         return rateLimitService.getRemainingRequests(customer);
-    }
-
-    public long getDailyLimit(Customer customer) {
-        return TierConfig.getLimits(customer.getTier()).dailyRequestLimit();
     }
 
     private void checkRateLimit(Customer customer) {

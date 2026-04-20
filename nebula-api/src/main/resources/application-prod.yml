@@ -53,6 +53,14 @@ dodo:
   products:
     pro: pdt_0NbNyvfrVtVYJsvAZriDh
 
+# NOWPayments Crypto Configuration
+nowpayments:
+  api-key: ${NOWPAYMENTS_API_KEY:}
+  ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
+  webhook-url: https://api.polyhistorical.com/v1/webhook/nowpayments
+  pro-amount: "20"
+  pro-currency: usd
+
 management:
   endpoints:
     web:

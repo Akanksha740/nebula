@@ -3,6 +3,7 @@ package com.nebula.api.controller;
 import com.nebula.api.service.ApiKeyService;
 import com.nebula.api.service.AuthService;
 import com.nebula.api.service.BillingService;
+import com.nebula.api.service.NowPaymentsService;
 import com.nebula.api.service.ProTrialService;
 import com.nebula.api.service.UsageTrackingService;
 import com.nebula.common.dto.ApiKeyDto;
@@ -37,6 +38,7 @@ public class AccountController {
     private final ApiKeyService apiKeyService;
     private final UsageTrackingService usageTrackingService;
     private final BillingService billingService;
+    private final NowPaymentsService nowPaymentsService;
     private final AuthService authService;
     private final ProTrialService proTrialService;
 
@@ -97,6 +99,18 @@ public class AccountController {
         requireAuth(customer);
         log.info("Checkout requested: customer={}, tier={}", customer.getEmail(), tier);
         String checkoutUrl = billingService.getCheckoutUrl(customer, tier);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("checkoutUrl", checkoutUrl)));
+    }
+
+    @PostMapping("/subscription/crypto-checkout")
+    @Operation(summary = "Create crypto checkout session for subscription upgrade")
+    public ResponseEntity<ApiResponse<Map<String, String>>> createCryptoCheckoutSession(
+            @AuthenticationPrincipal Customer customer,
+            @RequestParam Customer.SubscriptionTier tier) {
+
+        requireAuth(customer);
+        log.info("Crypto checkout requested: customer={}, tier={}", customer.getEmail(), tier);
+        String checkoutUrl = nowPaymentsService.getCheckoutUrl(customer, tier);
         return ResponseEntity.ok(ApiResponse.success(Map.of("checkoutUrl", checkoutUrl)));
     }
 

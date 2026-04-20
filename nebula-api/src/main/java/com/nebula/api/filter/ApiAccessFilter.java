@@ -52,18 +52,15 @@ public class ApiAccessFilter extends OncePerRequestFilter {
 
         try {
             apiAccessService.checkAccess(authContext.customer(), authContext.apiKey(), endpoint, method);
-            
+            filterChain.doFilter(request, responseWrapper);
             if (authContext.customer() != null) {
                 addRateLimitHeaders(responseWrapper, authContext.customer());
             }
-
-            filterChain.doFilter(request, responseWrapper);
-            
             recordUsage(authContext, request, responseWrapper, startTime);
             responseWrapper.copyBodyToResponse();
         } catch (RateLimitExceededException e) {
             recordUsage(authContext, request, e.getHttpStatus(), startTime);
-            handleRateLimitException(response, e);
+            handleRateLimitException(response, e, authContext.customer());
         } catch (NebulaException e) {
             recordUsage(authContext, request, e.getHttpStatus(), startTime);
             handleNebulaException(response, e);
@@ -164,11 +161,9 @@ public class ApiAccessFilter extends OncePerRequestFilter {
         try {
             TierLimits limits = apiAccessService.getLimits(customer);
             long remaining = apiAccessService.getRemainingRequests(customer);
-            long limit = limits.dailyRequestLimit();
 
-            response.setHeader("X-RateLimit-Limit-Day", String.valueOf(limit));
-            response.setHeader("X-RateLimit-Remaining-Day", String.valueOf(remaining));
-            response.setHeader("X-RateLimit-Limit-Minute", String.valueOf(limits.minuteRequestLimit()));
+            response.setHeader("X-RateLimit-Limit", String.valueOf(limits.dailyRequestLimit()));
+            response.setHeader("X-RateLimit-Remaining", String.valueOf(remaining));
             response.setHeader("X-RateLimit-Reset", getResetTime());
             response.setHeader("X-Tier", customer.getTier().name());
         } catch (Exception e) {
@@ -182,13 +177,13 @@ public class ApiAccessFilter extends OncePerRequestFilter {
         return String.valueOf(midnight.toEpochSecond(java.time.ZoneOffset.UTC));
     }
 
-    private void handleRateLimitException(HttpServletResponse response, RateLimitExceededException e) 
-            throws IOException {
+
+    private void handleRateLimitException(HttpServletResponse response, RateLimitExceededException e,
+                                          Customer customer) throws IOException {
         response.setStatus(e.getHttpStatus());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setHeader("Retry-After", String.valueOf(e.getRetryAfterSeconds()));
-        response.setHeader("X-RateLimit-Remaining", "0");
-        
+        addRateLimitHeaders(response, customer);
         ApiResponse<Void> apiResponse = ApiResponse.error(e.getMessage(), e.getErrorCode());
         objectMapper.writeValue(response.getOutputStream(), apiResponse);
     }
