@@ -61,6 +61,14 @@ cryptomus:
   pro-amount: "11"
   pro-currency: USD
 
+# NOWPayments Crypto Configuration
+nowpayments:
+  api-key: 6MWH2KW-HYVMH1P-G1J2GG7-E5KKJRD
+  ipn-secret: ${NOWPAYMENTS_IPN_SECRET}
+  webhook-url: https://api.polyhistorical.com/v1/webhook/nowpayments
+  pro-amount: "11"
+  pro-currency: usd
+
 management:
   endpoints:
     web:

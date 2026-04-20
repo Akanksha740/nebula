@@ -55,6 +55,14 @@ resend:
     key: ${RESEND_API_KEY:}
   from-email: ${RESEND_FROM_EMAIL:noreply@yourdomain.com}
 
+# NOWPayments Crypto Configuration
+nowpayments:
+  api-key: ${NOWPAYMENTS_API_KEY:}
+  ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
+  webhook-url: ${NOWPAYMENTS_WEBHOOK_URL:}
+  pro-amount: "11"
+  pro-currency: usd
+
 # Dodo Payments Configuration
 dodo:
   api:
