@@ -20,6 +20,8 @@ public class MarketDto {
 
     private String slug;
 
+    private String coin;
+
     @JsonProperty("market_type")
     private String marketType;
 

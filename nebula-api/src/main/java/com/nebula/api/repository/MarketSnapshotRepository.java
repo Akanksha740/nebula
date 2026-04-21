@@ -16,4 +16,6 @@ public interface MarketSnapshotRepository extends JpaRepository<MarketSnapshot, 
     List<MarketSnapshot> findByMarketIdOrderByTimeDesc(UUID marketId, Pageable pageable);
 
     long countByMarketId(UUID marketId);
+
+    List<MarketSnapshot> findByMarketIdOrderByTimeAsc(UUID marketId);
 }
