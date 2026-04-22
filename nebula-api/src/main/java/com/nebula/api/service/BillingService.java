@@ -153,6 +153,55 @@ public class BillingService {
         log.info("Downgraded customer {} to STARTER tier (subscription cancelled)", customer.getEmail());
     }
 
+    /**
+     * Cancels a customer's subscription via the Dodo Payments API.
+     * Uses cancel_at_next_billing_date so the subscription remains active
+     * until the end of the current billing cycle.
+     * Actual downgrade happens when Dodo sends the subscription.cancelled webhook.
+     */
+    public void cancelSubscription(Customer customer) {
+        if (customer.getTier() != Customer.SubscriptionTier.PRO) {
+            throw new NebulaException("No active subscription to cancel", "NO_SUBSCRIPTION", 400);
+        }
+
+        String subscriptionId = customer.getPaymentSubscriptionId();
+        if (subscriptionId == null || subscriptionId.isBlank()) {
+            throw new NebulaException("No subscription ID found. Contact support.", "NO_SUBSCRIPTION_ID", 400);
+        }
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new NebulaException("Payment system not configured", "BILLING_NOT_CONFIGURED", 503);
+        }
+
+        try {
+            var httpClient = java.net.http.HttpClient.newHttpClient();
+            var request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(apiBaseUrl + "/subscriptions/" + subscriptionId))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .method("PATCH", java.net.http.HttpRequest.BodyPublishers.ofString(
+                            "{\"cancel_at_next_billing_date\":true,\"cancel_reason\":\"cancelled_by_customer\"}"))
+                    .build();
+
+            var response = httpClient.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info("Subscription cancellation scheduled for customer {} (subscription: {})",
+                        customer.getEmail(), subscriptionId);
+            } else {
+                log.error("Dodo API returned {} for subscription cancellation: {}",
+                        response.statusCode(), response.body());
+                throw new NebulaException("Failed to cancel subscription. Please try again or contact support.",
+                        "CANCELLATION_FAILED", 502);
+            }
+        } catch (Exception e) {
+            log.error("Error cancelling subscription {} for customer {}: {}",
+                    subscriptionId, customer.getEmail(), e.getMessage(), e);
+            throw new NebulaException("Failed to cancel subscription. Please try again or contact support.",
+                    "CANCELLATION_FAILED", 502);
+        }
+    }
+
     public String getWebhookSecret() {
         return webhookSecret;
     }

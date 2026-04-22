@@ -129,6 +129,20 @@ public class AccountController {
         return ResponseEntity.ok(ApiResponse.success(response, "Pro trial activated for 7 days"));
     }
 
+    @PostMapping("/subscription/cancel")
+    @Operation(summary = "Cancel current subscription at end of billing cycle")
+    public ResponseEntity<ApiResponse<Map<String, String>>> cancelSubscription(
+            @AuthenticationPrincipal Customer customer) {
+
+        requireAuth(customer);
+        log.info("Subscription cancellation requested: customer={}, tier={}", customer.getEmail(), customer.getTier());
+        billingService.cancelSubscription(customer);
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("message", "Your subscription will be cancelled at the end of the current billing cycle."),
+                "Subscription cancellation scheduled"
+        ));
+    }
+
     @PostMapping("/change-password")
     @Operation(summary = "Change account password")
     public ResponseEntity<ApiResponse<Void>> changePassword(
