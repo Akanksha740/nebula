@@ -58,7 +58,7 @@ nowpayments:
   api-key: ${NOWPAYMENTS_API_KEY:}
   ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
   webhook-url: https://api.polyhistorical.com/v1/webhook/nowpayments
-  pro-amount: "20"
+  pro-amount: "22"
   pro-currency: usd
 
 management:
@@ -83,5 +83,5 @@ logging:
     org.springframework: WARN
     org.hibernate: WARN
   pattern:
-    dateformat: "yyyy-MM-dd HH:mm:ss.SSS"
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+    dateformat: "yyyy-MM-dd HH:mm:ss.SSS Z,Asia/Kolkata"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS Z, Asia/Kolkata} %-5level [%thread] %logger{36} - %msg%n"

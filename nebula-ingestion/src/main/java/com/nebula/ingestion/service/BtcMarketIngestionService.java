@@ -19,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +65,7 @@ public class BtcMarketIngestionService {
         int snapshotCount = 0;
         for (String slug : slugs) {
             try {
-                Market market = findOrCreateMarket(slug);
+                Market market = findOrCreateMarket(slug, coinPrices);
                 if (market != null && market.getActive()) {
                     BigDecimal coinPrice = coinPrices.get(market.getCoin());
                     fetchAndSaveSnapshot(market, coinPrice);
@@ -83,7 +85,7 @@ public class BtcMarketIngestionService {
      * Look up a market by slug; if it doesn't exist, fetch from Polymarket and persist it.
      * Returns null if the market cannot be found on Polymarket either.
      */
-    private Market findOrCreateMarket(String slug) {
+    private Market findOrCreateMarket(String slug, Map<Coin, BigDecimal> coinPrices) {
         Market existing = persistenceService.findBySlug(slug).orElse(null);
         if (existing != null) {
             return existing;
@@ -92,7 +94,6 @@ public class BtcMarketIngestionService {
         try {
             PolymarketMarket pm = polymarketClient.fetchMarketBySlug(slug)
                     .block(Duration.ofSeconds(30));
-
             if (pm == null) {
                 log.debug("Market not found on Polymarket for slug: {}", slug);
                 return null;
@@ -115,7 +116,7 @@ public class BtcMarketIngestionService {
                     .marketType(pm.getMarketTypeResolved())
                     .startTime(pm.getEventStartTime())
                     .endTime(pm.getEndDate())
-                    .coinPriceStart(pm.getCoinPriceStart())
+                    .coinPriceStart(coinPrices.get(coin))
                     .clobTokenUp(cleanTokenId(pm.getClobTokenUp()))
                     .clobTokenDown(cleanTokenId(pm.getClobTokenDown()))
                     .build();
@@ -147,40 +148,43 @@ public class BtcMarketIngestionService {
                 log.warn("Market {} not found", slug);
                 return;
             }
-
-            // Update market info (but NOT start_time and end_time)
-            updateMarketFromPolymarket(market, pm, coinPrice);
-
-            // Check if resolved
             boolean isResolved = isMarketResolved(pm);
 
-            // Fetch both orderbooks in a single API call
             List<OrderbookResponse> orderbooks = clobClient.fetchOrderbooks(
                     market.getClobTokenUp(), market.getClobTokenDown())
                     .block(Duration.ofSeconds(10));
 
-            Map<String, Object> orderbookUp = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenUp());
-            Map<String, Object> orderbookDown = ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenDown());
+            Map<String, Object> orderbookUp = reverseOrderbook(ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenUp()));
+            Map<String, Object> orderbookDown = reverseOrderbook(ClobClient.getOrderbookForToken(orderbooks, market.getClobTokenDown()));
+
+            // Fetch last trade prices from CLOB, fallback to Polymarket outcomePrices
+            BigDecimal priceUp = clobClient.fetchLastTradePrice(market.getClobTokenUp())
+                    .block(Duration.ofSeconds(5));
+            if (priceUp == null) priceUp = pm.getPriceUp();
+            BigDecimal priceDown = clobClient.fetchLastTradePrice(market.getClobTokenDown())
+                    .block(Duration.ofSeconds(5));
+            if (priceDown == null) priceDown = pm.getPriceDown();
 
             if (isResolved && !market.getResolved()) {
                 market.setActive(false);
                 market.setResolved(true);
                 Instant closedTime = pm.getClosedTimeInstant();
                 market.setResolvedAt(closedTime != null ? closedTime : Instant.now());
-                BigDecimal pmEnd = pm.getCoinPriceEnd();
-                market.setCoinPriceEnd(pmEnd != null ? pmEnd : coinPrice);
+                market.setFinalVolume(pm.getVolume());
+                market.setFinalLiquidity(pm.getLiquidity());
+                MarketSnapshot lastSnapshot = persistenceService.findLatestSnapshot(market.getId()).orElse(null);
+                market.setCoinPriceEnd(lastSnapshot != null ? lastSnapshot.getCoinPrice() : coinPrice);
                 log.info("Market {} is RESOLVED", slug);
+                persistenceService.saveMarket(market);
             }
-
-            persistenceService.saveMarket(market);
 
             // Create snapshot
             MarketSnapshot snapshot = MarketSnapshot.builder()
                     .market(market)
                     .time(Instant.now())
                     .coinPrice(coinPrice)
-                    .priceUp(pm.getPriceUp())
-                    .priceDown(pm.getPriceDown())
+                    .priceUp(priceUp)
+                    .priceDown(priceDown)
                     .volume(pm.getVolume())
                     .liquidity(pm.getLiquidity())
                     .orderbookUp(orderbookUp)
@@ -200,43 +204,13 @@ public class BtcMarketIngestionService {
         }
     }
 
-    /**
-     * Update market from Polymarket data (does NOT update start_time and end_time)
-     */
-    private void updateMarketFromPolymarket(Market market, PolymarketMarket pm, BigDecimal coinPrice) {
-        if (market.getMarketId() == null) {
-            market.setMarketId(pm.getId());
-        }
-        if (market.getEventId() == null) {
-            market.setEventId(pm.getEventId());
-        }
-        if (market.getConditionId() == null) {
-            market.setConditionId(pm.getConditionId());
-        }
-        
-        // Always update clob tokens with clean values
-        String clobTokenUp = cleanTokenId(pm.getClobTokenUp());
-        String clobTokenDown = cleanTokenId(pm.getClobTokenDown());
-        
-        if (clobTokenUp != null && !clobTokenUp.isEmpty()) {
-            market.setClobTokenUp(clobTokenUp);
-        }
-        if (clobTokenDown != null && !clobTokenDown.isEmpty()) {
-            market.setClobTokenDown(clobTokenDown);
-        }
-        
-        if (market.getMarketType() == null) {
-            market.setMarketType(pm.getMarketTypeResolved());
-        }
-
-        if(market.getCoinPriceStart() == null) {
-            market.setCoinPriceStart(coinPrice);
-            market.setCoinPriceEnd(coinPrice);
-        } else {
-            market.setCoinPriceEnd(coinPrice);
-        }
-        market.setFinalVolume(pm.getVolume());
-        market.setFinalLiquidity(pm.getLiquidity());
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> reverseOrderbook(Map<String, Object> orderbook) {
+        List<Map<String, Object>> bids = new ArrayList<>((List<Map<String, Object>>) orderbook.get("bids"));
+        List<Map<String, Object>> asks = new ArrayList<>((List<Map<String, Object>>) orderbook.get("asks"));
+        Collections.reverse(bids);
+        Collections.reverse(asks);
+        return Map.of("bids", bids, "asks", asks);
     }
 
     /**
@@ -315,6 +289,12 @@ public class BtcMarketIngestionService {
         List<Market> expiredMarkets = marketRepository.findExpiredActiveMarkets(Instant.now());
 
         for (Market market : expiredMarkets) {
+            MarketSnapshot lastSnapshot = persistenceService.findLatestSnapshot(market.getId()).orElse(null);
+            if (lastSnapshot != null) {
+                market.setCoinPriceEnd(lastSnapshot.getCoinPrice());
+                market.setFinalVolume(lastSnapshot.getVolume());
+                market.setFinalLiquidity(lastSnapshot.getLiquidity());
+            }
             String winner = determineWinner(market);
             market.setWinner(winner);
             market.setResolvedAt(Instant.now());

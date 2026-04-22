@@ -61,7 +61,7 @@ nowpayments:
   api-key: ${NOWPAYMENTS_API_KEY:}
   ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
   webhook-url: http://localhost:1010/v1/webhook/nowpayments
-  pro-amount: "20"
+  pro-amount: "22"
   pro-currency: usd
 
 # OpenAPI

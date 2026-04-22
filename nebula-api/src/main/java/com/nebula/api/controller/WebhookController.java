@@ -175,11 +175,13 @@ public class WebhookController {
             return ResponseEntity.badRequest().body("Invalid JSON");
         }
 
-        // Verify IPN signature — NOWPayments requires sorted keys for HMAC
+        // Verify IPN signature — NOWPayments requires recursively sorted keys for HMAC
         String sortedJson;
         try {
-            TreeMap<String, Object> sorted = new TreeMap<>(payload);
-            sortedJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(sorted);
+            Map<String, Object> sorted = sortRecursively(payload);
+            sortedJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .configure(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
+                    .writeValueAsString(sorted);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Serialization error");
         }
@@ -266,5 +268,22 @@ public class WebhookController {
             log.error("Error verifying webhook signature: {}", e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Recursively sorts map keys at all nesting levels.
+     * NOWPayments IPN signature requires all keys sorted alphabetically, including nested objects.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> sortRecursively(Map<String, Object> map) {
+        TreeMap<String, Object> sorted = new TreeMap<>();
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof Map) {
+                value = sortRecursively((Map<String, Object>) value);
+            }
+            sorted.put(entry.getKey(), value);
+        }
+        return sorted;
     }
 }

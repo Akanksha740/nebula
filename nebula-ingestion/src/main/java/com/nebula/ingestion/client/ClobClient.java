@@ -11,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +57,24 @@ public class ClobClient {
                 .doOnError(error ->
                     log.warn("Failed to fetch orderbooks: {}", error.getMessage()))
                 .onErrorResume(e -> Mono.just(List.of()));
+    }
+
+    /**
+     * Fetch last trade price for a token via GET /last-trade-price?token_id=...
+     */
+    public Mono<BigDecimal> fetchLastTradePrice(String tokenId) {
+        if (tokenId == null || tokenId.isBlank()) {
+            return Mono.empty();
+        }
+        return webClient.get()
+                .uri(clobBaseUrl + "/last-trade-price?token_id={tokenId}", tokenId)
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String, String>>() {})
+                .map(response -> new BigDecimal(response.get("price")))
+                .retryWhen(Retry.backoff(2, Duration.ofMillis(500)))
+                .doOnError(error ->
+                    log.warn("Failed to fetch last trade price for token {}: {}", tokenId, error.getMessage()))
+                .onErrorResume(e -> Mono.empty());
     }
 
     /**
