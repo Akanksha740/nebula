@@ -8,6 +8,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -146,12 +151,8 @@ public class WebhookController {
 
     /**
      * NOWPayments IPN webhook endpoint.
-     * See: https://documenter.getpostman.com/view/7907941/2s93JusNJt#ipn-callbacks
-     *
-     * NOWPayments sends a POST when payment status changes.
-     * Payload fields: payment_id, payment_status, pay_address, price_amount,
-     *                 price_currency, pay_amount, pay_currency, order_id,
-     *                 order_description, outcome_amount, outcome_currency, etc.
+     * Handles both legacy one-time payments (order_id = nebula_<customerId>_<ts>)
+     * and recurring subscription payments (identified by customer email).
      *
      * Signature verification:
      *   1. Sort JSON body keys alphabetically
@@ -159,7 +160,7 @@ public class WebhookController {
      *   3. Compare with 'x-nowpayments-sig' header
      *
      * Statuses we act on:
-     *   - finished       → payment completed
+     *   - finished       → payment completed, activate/renew subscription
      *   - partially_paid → log warning (underpayment)
      */
     @PostMapping("/nowpayments")
@@ -168,20 +169,24 @@ public class WebhookController {
             @RequestBody String rawBody,
             @RequestHeader(value = "x-nowpayments-sig", required = false) String signature) {
 
+        // Use BigDecimal for floats to avoid scientific notation (e.g. 2.8471E-4 vs 0.00028471)
+        // which would cause HMAC mismatch with NOWPayments' signature
+        ObjectMapper mapper = new ObjectMapper()
+                .configure(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS, true)
+                .configure(JsonGenerator.Feature.WRITE_BIGDECIMAL_AS_PLAIN, true)
+                .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
+
         Map<String, Object> payload;
         try {
-            payload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(rawBody, Map.class);
+            payload = mapper.readValue(rawBody, Map.class);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Invalid JSON");
         }
 
-        // Verify IPN signature — NOWPayments requires recursively sorted keys for HMAC
+        // Verify IPN signature — NOWPayments requires sorted keys for HMAC
         String sortedJson;
         try {
-            Map<String, Object> sorted = sortRecursively(payload);
-            sortedJson = new com.fasterxml.jackson.databind.ObjectMapper()
-                    .configure(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
-                    .writeValueAsString(sorted);
+            sortedJson = mapper.writeValueAsString(payload);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Serialization error");
         }
@@ -194,26 +199,39 @@ public class WebhookController {
         String paymentStatus = (String) payload.get("payment_status");
         String orderId = (String) payload.get("order_id");
         Object paymentId = payload.get("payment_id");
+        String purchaseId = payload.get("purchase_id") != null ? payload.get("purchase_id").toString() : null;
 
-        log.info("Received NOWPayments webhook: payment_status={}, order_id={}, payment_id={}",
-                paymentStatus, orderId, paymentId);
+        log.info("Received NOWPayments webhook: payment_status={}, order_id={}, payment_id={}, purchase_id={}",
+                paymentStatus, orderId, paymentId, purchaseId);
 
         if ("finished".equals(paymentStatus)) {
-            // order_id format: nebula_<customerId>_<timestamp>
-            if (orderId == null || !orderId.startsWith("nebula_")) {
-                log.warn("NOWPayments webhook with invalid order_id: {}", orderId);
-                return ResponseEntity.badRequest().body("Invalid order_id");
-            }
-
-            String[] parts = orderId.split("_", 3);
-            if (parts.length < 3) {
-                log.warn("NOWPayments webhook order_id missing parts: {}", orderId);
-                return ResponseEntity.badRequest().body("Invalid order_id format");
-            }
-            String customerId = parts[1];
-
             try {
-                nowPaymentsService.handlePaymentCompleted(customerId, "PRO");
+                if (orderId != null && orderId.startsWith("nebula_")) {
+                    // Legacy one-time payment: order_id = nebula_<customerId>_<timestamp>
+                    String[] parts = orderId.split("_", 3);
+                    if (parts.length < 3) {
+                        log.warn("NOWPayments webhook order_id missing parts: {}", orderId);
+                        return ResponseEntity.badRequest().body("Invalid order_id format");
+                    }
+                    String customerId = parts[1];
+                    nowPaymentsService.handlePaymentCompleted(customerId, "PRO");
+                } else {
+                    // Subscription payment: identify customer by order_description (email)
+                    // or by looking up the subscription via purchase_id
+                    String orderDescription = (String) payload.get("order_description");
+                    if (orderDescription != null && orderDescription.contains("@")) {
+                        // order_description contains the customer email for subscription payments
+                        nowPaymentsService.handleSubscriptionPaymentCompleted(orderDescription.trim());
+                    } else if (orderId != null) {
+                        // Try to extract email or subscription info from order_id
+                        log.warn("NOWPayments subscription payment with unrecognized order_id: {}, purchase_id: {}",
+                                orderId, purchaseId);
+                        return ResponseEntity.ok("OK");
+                    } else {
+                        log.warn("NOWPayments webhook with no order_id or order_description");
+                        return ResponseEntity.badRequest().body("Cannot identify customer");
+                    }
+                }
             } catch (Exception e) {
                 log.error("Error processing NOWPayments payment (order={}, payment_id={}): {}",
                         orderId, paymentId, e.getMessage(), e);
@@ -268,22 +286,5 @@ public class WebhookController {
             log.error("Error verifying webhook signature: {}", e.getMessage());
             return false;
         }
-    }
-
-    /**
-     * Recursively sorts map keys at all nesting levels.
-     * NOWPayments IPN signature requires all keys sorted alphabetically, including nested objects.
-     */
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> sortRecursively(Map<String, Object> map) {
-        TreeMap<String, Object> sorted = new TreeMap<>();
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            Object value = entry.getValue();
-            if (value instanceof Map) {
-                value = sortRecursively((Map<String, Object>) value);
-            }
-            sorted.put(entry.getKey(), value);
-        }
-        return sorted;
     }
 }

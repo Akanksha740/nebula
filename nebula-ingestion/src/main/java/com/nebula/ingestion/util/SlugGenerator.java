@@ -89,10 +89,10 @@ public final class SlugGenerator {
         List<String> slugs = new ArrayList<>(6);
         slugs.add(generate4hSlug(now));
         slugs.add(generate24hSlug(now));
-        slugs.add(generateEth4hSlug(now));
-        slugs.add(generateEth24hSlug(now));
-        slugs.add(generateSol4hSlug(now));
-        slugs.add(generateSol24hSlug(now));
+//        slugs.add(generateEth4hSlug(now));
+//        slugs.add(generateEth24hSlug(now));
+//        slugs.add(generateSol4hSlug(now));
+//        slugs.add(generateSol24hSlug(now));
         return slugs;
     }
 

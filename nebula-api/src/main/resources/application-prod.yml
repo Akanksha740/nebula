@@ -56,10 +56,14 @@ dodo:
 # NOWPayments Crypto Configuration
 nowpayments:
   api-key: ${NOWPAYMENTS_API_KEY:}
+  email: ${NOWPAYMENTS_EMAIL:}
+  password: ${NOWPAYMENTS_PASSWORD:}
   ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
   webhook-url: https://api.polyhistorical.com/v1/webhook/nowpayments
   pro-amount: "22"
   pro-currency: usd
+  pro-plan-id: "1639180536"
+  pro-interval-days: 60
 
 management:
   endpoints:

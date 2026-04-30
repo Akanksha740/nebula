@@ -103,15 +103,19 @@ public class AccountController {
     }
 
     @PostMapping("/subscription/crypto-checkout")
-    @Operation(summary = "Create crypto checkout session for subscription upgrade")
+    @Operation(summary = "Create crypto subscription for upgrade (payment link sent via email)")
     public ResponseEntity<ApiResponse<Map<String, String>>> createCryptoCheckoutSession(
             @AuthenticationPrincipal Customer customer,
             @RequestParam Customer.SubscriptionTier tier) {
 
         requireAuth(customer);
-        log.info("Crypto checkout requested: customer={}, tier={}", customer.getEmail(), tier);
-        String checkoutUrl = nowPaymentsService.getCheckoutUrl(customer, tier);
-        return ResponseEntity.ok(ApiResponse.success(Map.of("checkoutUrl", checkoutUrl)));
+        log.info("Crypto subscription requested: customer={}, tier={}", customer.getEmail(), tier);
+        String subscriptionId = nowPaymentsService.createSubscription(customer, tier);
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("subscriptionId", subscriptionId,
+                       "message", "A payment link has been sent to " + customer.getEmail() + ". Please check your inbox to complete the payment."),
+                "Crypto subscription created. Check your email for the payment link."
+        ));
     }
 
     @PostMapping("/activate-pro-trial")
@@ -136,7 +140,14 @@ public class AccountController {
 
         requireAuth(customer);
         log.info("Subscription cancellation requested: customer={}, tier={}", customer.getEmail(), customer.getTier());
-        billingService.cancelSubscription(customer);
+
+        // Route to the correct payment provider based on which subscription ID is set
+        if (customer.getCryptoSubscriptionId() != null && !customer.getCryptoSubscriptionId().isBlank()) {
+            nowPaymentsService.cancelSubscription(customer);
+        } else {
+            billingService.cancelSubscription(customer);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("message", "Your subscription will be cancelled at the end of the current billing cycle."),
                 "Subscription cancellation scheduled"

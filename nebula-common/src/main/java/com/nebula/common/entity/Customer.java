@@ -47,6 +47,12 @@ public class Customer {
     @Column(name = "payment_subscription_id")
     private String paymentSubscriptionId;
 
+    @Column(name = "crypto_subscription_id")
+    private String cryptoSubscriptionId;
+
+    @Column(name = "crypto_subscription_expires_at")
+    private Instant cryptoSubscriptionExpiresAt;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private Boolean isActive = true;

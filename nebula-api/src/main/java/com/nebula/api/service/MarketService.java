@@ -74,7 +74,7 @@ public class MarketService {
 
         limit = Math.max(limit, 1);
 
-        Pageable pageable = PageRequest.of(offset / limit, limit);
+        Pageable pageable = new com.nebula.api.util.OffsetPageable(offset, limit);
         Page<Market> page;
         long total;
 
@@ -163,7 +163,7 @@ public class MarketService {
         long total = snapshotRepository.countByMarketId(market.getId());
 
         List<MarketSnapshot> snapshots = snapshotRepository.findByMarketIdOrderByTimeDesc(
-                market.getId(), PageRequest.of(offset / limit, limit));
+                market.getId(), new com.nebula.api.util.OffsetPageable(offset, limit));
 
         List<MarketSnapshotDto> snapshotDtos = snapshots.stream()
                 .map(s -> toSnapshotDto(s, includeOrderbook))

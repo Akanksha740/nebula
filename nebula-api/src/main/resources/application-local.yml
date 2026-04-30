@@ -59,10 +59,14 @@ dodo:
 # NOWPayments Crypto Configuration
 nowpayments:
   api-key: ${NOWPAYMENTS_API_KEY:}
+  email: ${NOWPAYMENTS_EMAIL:}
+  password: ${NOWPAYMENTS_PASSWORD:}
   ipn-secret: ${NOWPAYMENTS_IPN_SECRET:}
   webhook-url: http://localhost:1010/v1/webhook/nowpayments
   pro-amount: "22"
   pro-currency: usd
+  pro-plan-id: ${NOWPAYMENTS_PRO_PLAN_ID:}
+  pro-interval-days: 60
 
 # OpenAPI
 springdoc:

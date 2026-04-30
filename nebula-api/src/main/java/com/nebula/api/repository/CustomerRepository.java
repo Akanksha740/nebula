@@ -26,4 +26,9 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
 
     @Query("SELECT c FROM Customer c WHERE c.tier = 'PRO_TRIAL' AND c.proTrialExpiresAt IS NOT NULL AND c.proTrialExpiresAt < :now")
     List<Customer> findExpiredTrials(@Param("now") Instant now);
+
+    Optional<Customer> findByCryptoSubscriptionId(String cryptoSubscriptionId);
+
+    @Query("SELECT c FROM Customer c WHERE c.tier = 'PRO' AND c.cryptoSubscriptionId IS NOT NULL AND c.cryptoSubscriptionExpiresAt IS NOT NULL AND c.cryptoSubscriptionExpiresAt < :now")
+    List<Customer> findExpiredCryptoSubscriptions(@Param("now") Instant now);
 }
