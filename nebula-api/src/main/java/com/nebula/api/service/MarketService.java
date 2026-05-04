@@ -183,6 +183,7 @@ public class MarketService {
                 .marketId(market.getMarketId())
                 .eventId(market.getEventId())
                 .slug(market.getSlug())
+                .coin(market.getCoin() != null ? market.getCoin().name() : null)
                 .marketType(market.getMarketType())
                 .startTime(market.getStartTime())
                 .endTime(market.getEndTime())
