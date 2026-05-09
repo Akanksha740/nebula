@@ -53,6 +53,28 @@ polymarket:
   clob:
     base-url: https://clob.polymarket.com
 
+# Polybacktest backup API (one-shot historical snapshot backfill)
+polybacktest:
+  api:
+    base-url: https://api.polybacktest.com
+    api-key: ${POLYBACKTEST_API_KEY:pdm_rAHYjBmpLT7UvyFVglXOem2tb68FKdiV}
+    rate-limit-rpm: 300       # 300 requests per minute = 200 ms spacing
+    page-size: 1000
+    retry-attempts: 3
+    retry-delay-ms: 1000
+  backup:
+    # Auto-fires the backfill on app startup. Override per-deploy with
+    # BACKUP_RUN_ON_STARTUP=false if you do not want it to run.
+    run-on-startup: ${BACKUP_RUN_ON_STARTUP:true}
+    coin-prefix: btc
+    interval: 5m
+    coin: BTC
+    start-epoch: 1778320800
+    end-epoch: 1775645914
+    step-seconds: 300
+    max-iterations: 10000
+    max-consecutive-missing: 500
+
 # Binance API configuration
 binance:
   api:

@@ -43,6 +43,26 @@ polymarket:
     retry-attempts: 3
     retry-delay-ms: 1000
 
+# Polybacktest backup API (one-shot historical snapshot backfill)
+polybacktest:
+  api:
+    base-url: https://api.polybacktest.com
+    api-key: pdm_rAHYjBmpLT7UvyFVglXOem2tb68FKdiV
+    rate-limit-rpm: 300       # 300 requests per minute
+    page-size: 1000
+    retry-attempts: 3
+    retry-delay-ms: 1000
+  backup:
+    run-on-startup: ${BACKUP_RUN_ON_STARTUP:true}
+    coin-prefix: btc
+    interval: 5m
+    coin: BTC
+    start-epoch: 1778320800
+    end-epoch: 1775645914
+    step-seconds: 300
+    max-iterations: 10000
+    max-consecutive-missing: 500
+
 # Nebula configuration
 nebula:
   api-key: nebula-local-key

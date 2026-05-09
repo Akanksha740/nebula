@@ -87,6 +87,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      INGESTION_API_KEY: ${INGESTION_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy
