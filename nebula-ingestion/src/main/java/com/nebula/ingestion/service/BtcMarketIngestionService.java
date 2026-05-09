@@ -13,17 +13,20 @@ import com.nebula.ingestion.repository.MarketSnapshotRepository;
 import com.nebula.ingestion.util.SlugGenerator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +39,7 @@ public class BtcMarketIngestionService {
     private final MarketRepository marketRepository;
     private final MarketSnapshotRepository snapshotRepository;
     private final MarketPersistenceService persistenceService;
+    private final JdbcTemplate jdbcTemplate;
 
     /**
      * Generate slugs for all market types based on current UTC time,
@@ -308,6 +312,54 @@ public class BtcMarketIngestionService {
             log.info("Deactivated {} expired markets", expiredMarkets.size());
         }
         return expiredMarkets.size();
+    }
+
+    /**
+     * Delete markets created more than {@code olderThanDays} days ago,
+     * along with all their snapshots. Snapshots are removed first to satisfy
+     * the FK from market_snapshots.market_id (the schema also has ON DELETE
+     * CASCADE, but we delete explicitly so JPA's persistence context stays
+     * consistent and we can log the snapshot count).
+     */
+    @Transactional
+    public int deleteMarketsOlderThan(int olderThanDays) {
+        Instant cutoff = Instant.now().minus(olderThanDays, ChronoUnit.DAYS);
+        List<UUID> oldMarketIds = marketRepository.findIdsCreatedBefore(cutoff);
+
+        if (oldMarketIds.isEmpty()) {
+            log.info("No markets older than {} days (cutoff={}) found for cleanup", olderThanDays, cutoff);
+            return 0;
+        }
+
+        int deletedSnapshots = snapshotRepository.deleteByMarketIdIn(oldMarketIds);
+        int deletedMarkets = marketRepository.deleteByIdIn(oldMarketIds);
+        log.info("Cleanup: deleted {} markets and {} snapshots older than {} days (cutoff={})",
+                deletedMarkets, deletedSnapshots, olderThanDays, cutoff);
+        return deletedMarkets;
+    }
+
+    /**
+     * Run VACUUM on the market tables to release dead-tuple pages back to
+     * Postgres so future inserts reuse them (prevents bloat re-accumulating
+     * after the daily DELETE).
+     *
+     * Must NOT be wrapped in a transaction — Postgres rejects VACUUM inside
+     * a transaction block. This method is intentionally non-@Transactional;
+     * it must also not be invoked from inside a @Transactional caller.
+     *
+     * @param full  if true, runs VACUUM FULL (rewrites the table, returns
+     *              disk to the OS, but takes an AccessExclusiveLock for the
+     *              duration — only safe in maintenance windows). Default
+     *              false runs an online VACUUM ANALYZE.
+     */
+    public void vacuumMarketTables(boolean full) {
+        String sql = full
+                ? "VACUUM (FULL, ANALYZE) markets, market_snapshots"
+                : "VACUUM (ANALYZE) markets, market_snapshots";
+        long startMs = System.currentTimeMillis();
+        log.info("Running {} on markets, market_snapshots ...", full ? "VACUUM FULL ANALYZE" : "VACUUM ANALYZE");
+        jdbcTemplate.execute(sql);
+        log.info("VACUUM completed in {} ms", System.currentTimeMillis() - startMs);
     }
 
     private String determineWinner(Market market) {

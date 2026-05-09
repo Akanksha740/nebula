@@ -59,8 +59,11 @@ nebula:
     long-interval-ms: ${SNAPSHOT_LONG_INTERVAL_MS:1000}
     log-each-tick: false
   retention:
-    days: 30
-    cleanup-cron: "0 0 2 * * ?"
+    days: ${RETENTION_DAYS:31}
+    cleanup-cron: ${RETENTION_CLEANUP_CRON:0 0 10 * * *}
+    cleanup-zone: ${RETENTION_CLEANUP_ZONE:Asia/Kolkata}
+    vacuum: ${RETENTION_VACUUM:true}
+    vacuum-full: ${RETENTION_VACUUM_FULL:false}
 
 management:
   endpoints:

@@ -50,8 +50,11 @@ nebula:
     interval-ms: 500       # Snapshot interval in milliseconds (500 = 2 per second)
     log-each-tick: false   # Set to true to log each snapshot tick
   retention:
-    days: 30
-    cleanup-cron: "0 0 2 * * ?"
+    days: 31
+    cleanup-cron: "0 0 10 * * *"
+    cleanup-zone: "Asia/Kolkata"
+    vacuum: true
+    vacuum-full: false
 
 logging:
   level:

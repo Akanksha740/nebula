@@ -25,6 +25,15 @@ public class BtcMarketScheduler {
     @Value("${nebula.snapshot.log-each-tick:false}")
     private boolean logEachTick;
 
+    @Value("${nebula.retention.days:31}")
+    private int retentionDays;
+
+    @Value("${nebula.retention.vacuum:true}")
+    private boolean vacuumEnabled;
+
+    @Value("${nebula.retention.vacuum-full:false}")
+    private boolean vacuumFull;
+
     public BtcMarketScheduler(BtcMarketIngestionService btcMarketIngestionService) {
         this.btcMarketIngestionService = btcMarketIngestionService;
         this.snapshotExecutor = Executors.newFixedThreadPool(4);
@@ -78,6 +87,35 @@ public class BtcMarketScheduler {
             btcMarketIngestionService.deactivateExpiredMarkets();
         } catch (Exception e) {
             log.error("Failed to deactivate expired markets", e);
+        }
+    }
+
+    /**
+     * Delete markets (and their snapshots) older than the configured retention
+     * window. Runs once a day at 10:00 AM India Standard Time.
+     * Configure via:
+     *   nebula.retention.days (default 31)
+     *   nebula.retention.cleanup-cron (default "0 0 10 * * *")
+     *   nebula.retention.cleanup-zone (default "Asia/Kolkata")
+     */
+    @Scheduled(
+            cron = "${nebula.retention.cleanup-cron:0 0 10 * * *}",
+            zone = "${nebula.retention.cleanup-zone:Asia/Kolkata}"
+    )
+    public void cleanupOldMarkets() {
+        log.info("--- Old market cleanup tick at {} (retention={} days) ---", Instant.now(), retentionDays);
+        try {
+            btcMarketIngestionService.deleteMarketsOlderThan(retentionDays);
+        } catch (Exception e) {
+            log.error("Failed to delete old markets", e);
+            return;
+        }
+        if (vacuumEnabled) {
+            try {
+                btcMarketIngestionService.vacuumMarketTables(vacuumFull);
+            } catch (Exception e) {
+                log.error("VACUUM after cleanup failed", e);
+            }
         }
     }
 }

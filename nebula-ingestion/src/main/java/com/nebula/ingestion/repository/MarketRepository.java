@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,6 +27,13 @@ public interface MarketRepository extends JpaRepository<Market, UUID> {
 
     @Query("SELECT m FROM Market m WHERE m.active = true AND m.endTime < :now")
     List<Market> findExpiredActiveMarkets(@Param("now") Instant now);
+
+    @Query("SELECT m.id FROM Market m WHERE m.createdAt < :cutoff")
+    List<UUID> findIdsCreatedBefore(@Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Query("DELETE FROM Market m WHERE m.id IN :ids")
+    int deleteByIdIn(@Param("ids") Collection<UUID> ids);
 
     @Modifying
     @Query(value = "INSERT INTO markets (id, coin, slug, market_id, event_id, market_type, condition_id, " +

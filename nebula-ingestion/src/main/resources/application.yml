@@ -66,8 +66,11 @@ nebula:
     long-interval-ms: ${SNAPSHOT_LONG_INTERVAL_MS:1000}  # Long markets (4h, 24h): 1 per second
     log-each-tick: ${SNAPSHOT_LOG_TICK:false}
   retention:
-    days: 30
-    cleanup-cron: "0 0 2 * * ?"  # 2 AM daily
+    days: ${RETENTION_DAYS:31}
+    cleanup-cron: ${RETENTION_CLEANUP_CRON:0 0 10 * * *}  # 10:00 AM daily
+    cleanup-zone: ${RETENTION_CLEANUP_ZONE:Asia/Kolkata}   # IST
+    vacuum: ${RETENTION_VACUUM:true}                      # run VACUUM ANALYZE after delete
+    vacuum-full: ${RETENTION_VACUUM_FULL:false}           # locks tables — only in maintenance windows
 
 # Actuator
 management:
