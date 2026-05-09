@@ -38,7 +38,7 @@ public class RateLimitService {
             Long ttl = redisTemplate.getExpire(minuteKey);
             long retryAfter = (ttl != null && ttl > 0) ? ttl : 1;
             log.warn("Per-minute rate limit exceeded for customer: {}, count: {}, limit: {}",
-                    customer.getId(), minuteCount, limits.minuteRequestLimit());
+                    customer.getEmail(), minuteCount, limits.minuteRequestLimit());
             throw new RateLimitExceededException(
                     String.format("Rate limit exceeded. Too many requests per minute. Retry after %d seconds", retryAfter),
                     retryAfter);
@@ -54,7 +54,7 @@ public class RateLimitService {
             Long ttl = redisTemplate.getExpire(dailyKey);
             long retryAfter = (ttl != null && ttl > 0) ? ttl : getSecondsUntilMidnight();
             log.warn("Daily rate limit exceeded for customer: {}, count: {}, limit: {}",
-                    customer.getId(), dailyCount, limits.dailyRequestLimit());
+                    customer.getEmail(), dailyCount, limits.dailyRequestLimit());
             throw new RateLimitExceededException(retryAfter);
         }
     }

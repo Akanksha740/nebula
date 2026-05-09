@@ -1,10 +1,12 @@
 package com.nebula.ingestion.service;
 
+import com.nebula.common.entity.BackupProgress;
 import com.nebula.common.entity.Market;
 import com.nebula.common.entity.MarketSnapshot;
 import com.nebula.ingestion.client.PolyBacktestClient;
 import com.nebula.ingestion.client.dto.PolyBacktestSnapshot;
 import com.nebula.ingestion.client.dto.PolyBacktestSnapshotPage;
+import com.nebula.ingestion.repository.BackupProgressRepository;
 import com.nebula.ingestion.repository.MarketRepository;
 import com.nebula.ingestion.repository.MarketSnapshotRepository;
 import lombok.Getter;
@@ -18,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -49,6 +52,7 @@ public class SnapshotBackupService {
     private final PolyBacktestClient client;
     private final MarketRepository marketRepository;
     private final MarketSnapshotRepository snapshotRepository;
+    private final BackupProgressRepository progressRepository;
     private final SnapshotBackupPersistence persistence;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
@@ -107,7 +111,22 @@ public class SnapshotBackupService {
         log.info("Backup starting: {}", req);
         long startMs = System.currentTimeMillis();
 
-        long epoch = req.getStartEpoch();
+        String progressKey = String.format("%s-updown-%s", req.getCoinPrefix(), req.getInterval());
+        long epoch = resolveStartingEpoch(req, progressKey);
+        if (req.getEndEpoch() != null && epoch < req.getEndEpoch()) {
+            log.info("Backup '{}' is already complete (resumed epoch {} < endEpoch {}). Nothing to do.",
+                    progressKey, epoch, req.getEndEpoch());
+            this.status = BackupStatus.builder()
+                    .request(req)
+                    .running(false)
+                    .currentEpoch(epoch)
+                    .iterations(0)
+                    .startedAtMs(startMs)
+                    .finishedAtMs(System.currentTimeMillis())
+                    .build();
+            return;
+        }
+
         int iterationCount = 0;
         int marketsHit = 0;
         int marketsMissing = 0;
@@ -147,21 +166,49 @@ public class SnapshotBackupService {
             } else {
                 consecutiveMissing = 0;
                 marketsHit++;
-                try {
-                    log.info("[{}] backfilling marketId={} (iter {}/{})",
-                            slug, market.getMarketId(), iterationCount + 1, req.getMaxIterations());
-                    BackfillResult r = backfillMarket(slug, market, req.getCoin());
-                    totalSnapshotsSaved += r.saved;
-                    totalSnapshotsSkipped += r.skipped;
-                    log.info("[{}] done: saved={} skipped={} pages={}",
-                            slug, r.saved, r.skipped, r.pages);
-                } catch (Exception e) {
-                    log.error("[{}] backfill failed: {}", slug, e.getMessage(), e);
-                    // continue with next slug — don't let one bad market kill the run
+                // Cheap pre-check: a partial save can only have left an exact
+                // multiple of pageSize in the DB (whole-page transactions
+                // commit atomically). If the existing count is non-zero and
+                // not a multiple of pageSize, the market is already whole and
+                // we can skip the polybacktest call entirely.
+                long existingCount = persistence.countSnapshotsForMarket(market.getId());
+                int pageSize = client.getPageSize();
+                boolean suspectIncomplete = existingCount == 0L || (existingCount % pageSize) == 0L;
+                if (!suspectIncomplete) {
+                    log.info("[{}] skipping API call — existing snapshots={} (not a page-multiple, treating as complete)",
+                            slug, existingCount);
+                    totalSnapshotsSkipped += existingCount;
+                } else {
+                    try {
+                        log.info("[{}] backfilling marketId={} existing={} (iter {}/{})",
+                                slug, market.getMarketId(), existingCount,
+                                iterationCount + 1, req.getMaxIterations());
+                        BackfillResult r = backfillMarket(slug, market, req.getCoin());
+                        totalSnapshotsSaved += r.saved;
+                        totalSnapshotsSkipped += r.skipped;
+                        long covered = r.saved + r.skipped;
+                        if (r.expectedTotal != null && covered < r.expectedTotal) {
+                            log.warn("[{}] INCOMPLETE: covered={} expected={} (saved={} skipped={} pages={}) — re-run to top off",
+                                    slug, covered, r.expectedTotal, r.saved, r.skipped, r.pages);
+                        } else {
+                            log.info("[{}] done: saved={} skipped={} pages={} expected={}",
+                                    slug, r.saved, r.skipped, r.pages, r.expectedTotal);
+                        }
+                    } catch (Exception e) {
+                        log.error("[{}] backfill failed: {}", slug, e.getMessage(), e);
+                        // continue with next slug — don't let one bad market kill the run
+                    }
                 }
             }
 
             iterationCount++;
+
+            // Persist progress after each iteration so a restart resumes from
+            // the next epoch below. Done before decrementing `epoch` so the
+            // recorded value is the slug we just finished.
+            persistence.upsertProgress(progressKey, req, epoch, slug,
+                    iterationCount, totalSnapshotsSaved, startMs);
+
             epoch -= req.getStepSeconds();
 
             // Update status snapshot for the controller to read
@@ -199,8 +246,41 @@ public class SnapshotBackupService {
     }
 
     /**
+     * Decide which epoch to start from. If we have persisted progress for this
+     * run key whose {@code lastEpoch} sits inside the requested range, resume
+     * one step below it. Otherwise fall back to the request's startEpoch.
+     */
+    private long resolveStartingEpoch(BackupRequest req, String progressKey) {
+        Optional<BackupProgress> prev = progressRepository.findById(progressKey);
+        if (prev.isEmpty()) {
+            return req.getStartEpoch();
+        }
+        BackupProgress p = prev.get();
+        long resumeEpoch = p.getLastEpoch() - req.getStepSeconds();
+        // Only resume if it's still inside the current request's range.
+        if (resumeEpoch <= req.getStartEpoch()
+                && (req.getEndEpoch() == null || resumeEpoch >= req.getEndEpoch())) {
+            log.info("Resuming '{}' from epoch {} (lastEpoch={} iterationsDone={} snapshotsSaved={})",
+                    progressKey, resumeEpoch, p.getLastEpoch(),
+                    p.getIterationsDone(), p.getSnapshotsSaved());
+            return resumeEpoch;
+        }
+        if (req.getEndEpoch() != null && resumeEpoch < req.getEndEpoch()) {
+            // Entire previous run is past the new endEpoch — already complete.
+            return resumeEpoch;
+        }
+        log.info("Stored progress for '{}' (lastEpoch={}) is outside the requested range [{}..{}], starting fresh from {}",
+                progressKey, p.getLastEpoch(), req.getEndEpoch(), req.getStartEpoch(), req.getStartEpoch());
+        return req.getStartEpoch();
+    }
+
+    /**
      * Pull every snapshot for one market from polybacktest, paging by offset
      * until {@code offset >= total}, and persist new ones.
+     *
+     * If a transient error breaks the loop part-way, the {@link BackfillResult}
+     * carries {@code expectedTotal} so the caller can warn loudly when we did
+     * not cover the full set. A re-run will catch up via in-memory dedup.
      */
     private BackfillResult backfillMarket(String slug, Market market, String coin) {
         UUID dbMarketId = market.getId();
@@ -210,6 +290,7 @@ public class SnapshotBackupService {
         long skipped = 0;
         int pages = 0;
         int offset = 0;
+        Integer expectedTotal = null;
 
         while (true) {
             if (cancelRequested.get()) break;
@@ -217,6 +298,9 @@ public class SnapshotBackupService {
             PolyBacktestSnapshotPage page =
                     client.fetchSnapshotsPage(market.getMarketId(), coin, offset);
             pages++;
+            if (expectedTotal == null && page.getTotal() != null) {
+                expectedTotal = page.getTotal();
+            }
 
             List<PolyBacktestSnapshot> rows = page.snapshotsOrEmpty();
             if (log.isDebugEnabled()) {
@@ -265,10 +349,10 @@ public class SnapshotBackupService {
             if (rows.size() < client.getPageSize()) break;
         }
 
-        return new BackfillResult(saved, skipped, pages);
+        return new BackfillResult(saved, skipped, pages, expectedTotal);
     }
 
-    private record BackfillResult(long saved, long skipped, int pages) {}
+    private record BackfillResult(long saved, long skipped, int pages, Integer expectedTotal) {}
 
     /**
      * Persistence helpers carved out so transaction boundaries are explicit
@@ -278,6 +362,7 @@ public class SnapshotBackupService {
     @RequiredArgsConstructor
     public static class SnapshotBackupPersistence {
         private final MarketSnapshotRepository snapshotRepository;
+        private final BackupProgressRepository progressRepository;
         private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
         @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
@@ -293,9 +378,50 @@ public class SnapshotBackupService {
             return out;
         }
 
+        @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+        public long countSnapshotsForMarket(UUID marketId) {
+            Long count = jdbc.queryForObject(
+                    "SELECT count(*) FROM market_snapshots WHERE market_id = ?",
+                    Long.class, marketId);
+            return count != null ? count : 0L;
+        }
+
         @Transactional(propagation = Propagation.REQUIRES_NEW)
         public void saveAll(List<MarketSnapshot> snapshots) {
             snapshotRepository.saveAll(snapshots);
+        }
+
+        /**
+         * Upsert the progress marker for a given run key. Failure here is
+         * logged but never propagated — losing one heartbeat is fine; the
+         * run will overwrite it on the next iteration.
+         */
+        @Transactional(propagation = Propagation.REQUIRES_NEW)
+        public void upsertProgress(String key, BackupRequest req, long lastEpoch,
+                                   String lastSlug, int iterations,
+                                   long snapshotsSaved, long startedAtMs) {
+            try {
+                BackupProgress p = progressRepository.findById(key).orElseGet(() -> {
+                    BackupProgress fresh = BackupProgress.builder()
+                            .id(key)
+                            .startEpoch(req.getStartEpoch())
+                            .endEpoch(req.getEndEpoch() != null ? req.getEndEpoch() : 0L)
+                            .startedAt(Instant.ofEpochMilli(startedAtMs))
+                            .build();
+                    return fresh;
+                });
+                p.setLastEpoch(lastEpoch);
+                p.setLastSlug(lastSlug);
+                p.setIterationsDone(iterations);
+                p.setSnapshotsSaved(snapshotsSaved);
+                // Refresh the stated range in case the request changed across restarts
+                p.setStartEpoch(req.getStartEpoch());
+                p.setEndEpoch(req.getEndEpoch() != null ? req.getEndEpoch() : 0L);
+                progressRepository.save(p);
+            } catch (Exception e) {
+                org.slf4j.LoggerFactory.getLogger(SnapshotBackupService.class)
+                        .warn("Failed to persist backup progress for {}: {}", key, e.getMessage());
+            }
         }
     }
 }
