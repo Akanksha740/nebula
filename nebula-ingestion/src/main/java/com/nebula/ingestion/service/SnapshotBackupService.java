@@ -186,14 +186,11 @@ public class SnapshotBackupService {
                         BackfillResult r = backfillMarket(slug, market, req.getCoin());
                         totalSnapshotsSaved += r.saved;
                         totalSnapshotsSkipped += r.skipped;
-                        long covered = r.saved + r.skipped;
-                        if (r.expectedTotal != null && covered < r.expectedTotal) {
-                            log.warn("[{}] INCOMPLETE: covered={} expected={} (saved={} skipped={} pages={}) — re-run to top off",
-                                    slug, covered, r.expectedTotal, r.saved, r.skipped, r.pages);
-                        } else {
-                            log.info("[{}] done: saved={} skipped={} pages={} expected={}",
-                                    slug, r.saved, r.skipped, r.pages, r.expectedTotal);
-                        }
+                        // Note: r.expectedTotal is the polybacktest `total` field, which
+                        // is unreliable when include_orderbook=true — kept in the log for
+                        // debugging only, NOT used for any control flow.
+                        log.info("[{}] done: saved={} skipped={} pages={} reportedTotal={}",
+                                slug, r.saved, r.skipped, r.pages, r.expectedTotal);
                     } catch (Exception e) {
                         log.error("[{}] backfill failed: {}", slug, e.getMessage(), e);
                         // continue with next slug — don't let one bad market kill the run
@@ -342,10 +339,14 @@ public class SnapshotBackupService {
 
             offset += rows.size();
 
-            // Stop once we've consumed the full result set.
-            Integer total = page.getTotal();
-            if (total != null && offset >= total) break;
-            // Defensive: server returned fewer than requested → last page.
+            // Last page when server returned fewer than requested.
+            //
+            // We deliberately do NOT terminate on `offset >= page.total`:
+            // polybacktest's `total` field is unreliable when
+            // `include_orderbook=true` (it sometimes reports a much smaller
+            // number — e.g. 47 instead of 2341 — likely a count of
+            // orderbook-changes rather than rows). Trusting it caused
+            // markets to terminate after page 1 with 1000 rows missing.
             if (rows.size() < client.getPageSize()) break;
         }
 
