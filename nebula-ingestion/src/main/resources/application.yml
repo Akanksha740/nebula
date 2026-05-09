@@ -63,15 +63,16 @@ polybacktest:
     retry-attempts: 3
     retry-delay-ms: 1000
   backup:
-    # Auto-fires the backfill on app startup. Override per-deploy with
-    # BACKUP_RUN_ON_STARTUP=false if you do not want it to run.
     run-on-startup: ${BACKUP_RUN_ON_STARTUP:true}
-    coin-prefix: btc
-    interval: 5m
-    coin: BTC
+    force-fresh: ${BACKUP_FORCE_FRESH:true}
+    coin-prefix: ${BACKUP_COIN_PREFIX:eth}
+    coin: ${BACKUP_COIN:ETH}
+    # Comma-separated list of intervals to walk in order. The runner steps
+    # them sequentially on a single executor (rate-limit-aware). Each
+    # interval gets its own backup_progress row keyed by "{prefix}-updown-{iv}".
+    intervals: ${BACKUP_INTERVALS:5m}
     start-epoch: 1778320800
     end-epoch: 1775645914
-    step-seconds: 300
     max-iterations: 10000
     max-consecutive-missing: 500
 

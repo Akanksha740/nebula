@@ -186,11 +186,10 @@ public class SnapshotBackupService {
                         BackfillResult r = backfillMarket(slug, market, req.getCoin());
                         totalSnapshotsSaved += r.saved;
                         totalSnapshotsSkipped += r.skipped;
-                        // Note: r.expectedTotal is the polybacktest `total` field, which
-                        // is unreliable when include_orderbook=true — kept in the log for
-                        // debugging only, NOT used for any control flow.
-                        log.info("[{}] done: saved={} skipped={} pages={} reportedTotal={}",
-                                slug, r.saved, r.skipped, r.pages, r.expectedTotal);
+                        // `received` is the actual number of rows returned across
+                        // all pages — that's the truth, not the vendor's `total`.
+                        log.info("[{}] done: saved={} skipped={} received={} pages={}",
+                                slug, r.saved, r.skipped, r.received, r.pages);
                     } catch (Exception e) {
                         log.error("[{}] backfill failed: {}", slug, e.getMessage(), e);
                         // continue with next slug — don't let one bad market kill the run
@@ -273,11 +272,10 @@ public class SnapshotBackupService {
 
     /**
      * Pull every snapshot for one market from polybacktest, paging by offset
-     * until {@code offset >= total}, and persist new ones.
-     *
-     * If a transient error breaks the loop part-way, the {@link BackfillResult}
-     * carries {@code expectedTotal} so the caller can warn loudly when we did
-     * not cover the full set. A re-run will catch up via in-memory dedup.
+     * until the server returns a partial page. The vendor's {@code total}
+     * field is unreliable when {@code include_orderbook=true} (sometimes
+     * reports orderbook-change count instead of row count), so we never
+     * depend on it — only the row counts we actually receive.
      */
     private BackfillResult backfillMarket(String slug, Market market, String coin) {
         UUID dbMarketId = market.getId();
@@ -285,9 +283,9 @@ public class SnapshotBackupService {
 
         long saved = 0;
         long skipped = 0;
+        long received = 0;
         int pages = 0;
         int offset = 0;
-        Integer expectedTotal = null;
 
         while (true) {
             if (cancelRequested.get()) break;
@@ -295,16 +293,13 @@ public class SnapshotBackupService {
             PolyBacktestSnapshotPage page =
                     client.fetchSnapshotsPage(market.getMarketId(), coin, offset);
             pages++;
-            if (expectedTotal == null && page.getTotal() != null) {
-                expectedTotal = page.getTotal();
-            }
 
             List<PolyBacktestSnapshot> rows = page.snapshotsOrEmpty();
             if (log.isDebugEnabled()) {
-                log.debug("[{}] page offset={} size={} total={}",
-                        slug, offset, rows.size(), page.getTotal());
+                log.debug("[{}] page offset={} size={}", slug, offset, rows.size());
             }
             if (rows.isEmpty()) break;
+            received += rows.size();
 
             List<MarketSnapshot> toSave = new ArrayList<>(rows.size());
             for (PolyBacktestSnapshot s : rows) {
@@ -319,7 +314,7 @@ public class SnapshotBackupService {
                 MarketSnapshot snap = MarketSnapshot.builder()
                         .market(market)
                         .time(s.getTime())
-                        .coinPrice(s.getBtcPrice())
+                        .coinPrice(s.getCoinPrice())
                         .priceUp(s.getPriceUp())
                         .priceDown(s.getPriceDown())
                         .orderbookUp(s.getOrderbookUp())
@@ -339,21 +334,16 @@ public class SnapshotBackupService {
 
             offset += rows.size();
 
-            // Last page when server returned fewer than requested.
-            //
-            // We deliberately do NOT terminate on `offset >= page.total`:
-            // polybacktest's `total` field is unreliable when
-            // `include_orderbook=true` (it sometimes reports a much smaller
-            // number — e.g. 47 instead of 2341 — likely a count of
-            // orderbook-changes rather than rows). Trusting it caused
-            // markets to terminate after page 1 with 1000 rows missing.
+            // Last page when server returned fewer than requested. This is
+            // the only termination signal — see method javadoc for why we
+            // ignore the vendor's `total` field.
             if (rows.size() < client.getPageSize()) break;
         }
 
-        return new BackfillResult(saved, skipped, pages, expectedTotal);
+        return new BackfillResult(saved, skipped, received, pages);
     }
 
-    private record BackfillResult(long saved, long skipped, int pages, Integer expectedTotal) {}
+    private record BackfillResult(long saved, long skipped, long received, int pages) {}
 
     /**
      * Persistence helpers carved out so transaction boundaries are explicit

@@ -54,12 +54,12 @@ polybacktest:
     retry-delay-ms: 1000
   backup:
     run-on-startup: ${BACKUP_RUN_ON_STARTUP:true}
-    coin-prefix: btc
-    interval: 5m
-    coin: BTC
+    force-fresh: ${BACKUP_FORCE_FRESH:true}
+    coin-prefix: ${BACKUP_COIN_PREFIX:eth}
+    coin: ${BACKUP_COIN:ETH}
+    intervals: ${BACKUP_INTERVALS:5m}
     start-epoch: 1778320800
     end-epoch: 1775645914
-    step-seconds: 300
     max-iterations: 10000
     max-consecutive-missing: 500
 
