@@ -271,6 +271,17 @@ public class SnapshotBackupService {
     }
 
     /**
+     * Public entry point for backfilling a single market on demand
+     * (independent of the orchestrated walk). Bypasses the singleton-run
+     * lock, so it can be invoked alongside an in-flight orchestration
+     * — but that should generally be avoided to keep API rate budgeting
+     * predictable. Intended for ad-hoc admin backfills via the controller.
+     */
+    public BackfillResult backfillSingleMarket(Market market, String coin) {
+        return backfillMarket(market.getSlug(), market, coin);
+    }
+
+    /**
      * Pull every snapshot for one market from polybacktest, paging by offset
      * until the server returns a partial page. The vendor's {@code total}
      * field is unreliable when {@code include_orderbook=true} (sometimes
@@ -343,7 +354,7 @@ public class SnapshotBackupService {
         return new BackfillResult(saved, skipped, received, pages);
     }
 
-    private record BackfillResult(long saved, long skipped, long received, int pages) {}
+    public record BackfillResult(long saved, long skipped, long received, int pages) {}
 
     /**
      * Persistence helpers carved out so transaction boundaries are explicit

@@ -86,6 +86,20 @@ public class BtcMarketIngestionService {
     }
 
     /**
+     * Public entry point for ad-hoc slug processing. Creates the market in
+     * our DB if it doesn't already exist (by fetching metadata from
+     * Polymarket gamma-api). Returns null if Polymarket has no record.
+     *
+     * Used by the per-slug backfill admin endpoint — does NOT take a live
+     * snapshot, since that would record current orderbook state for an
+     * old market. Caller is expected to backfill historical snapshots
+     * via {@link SnapshotBackupService#backfillSingleMarket}.
+     */
+    public Market createMarketFromPolymarket(String slug) {
+        return findOrCreateMarket(slug, fetchAllCoinPrices());
+    }
+
+    /**
      * Look up a market by slug; if it doesn't exist, fetch from Polymarket and persist it.
      * Returns null if the market cannot be found on Polymarket either.
      */
