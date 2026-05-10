@@ -162,7 +162,7 @@ public class MarketService {
 
         long total = snapshotRepository.countByMarketId(market.getId());
 
-        List<MarketSnapshot> snapshots = snapshotRepository.findByMarketIdOrderByTimeDesc(
+        List<MarketSnapshot> snapshots = snapshotRepository.findByMarketIdOrderByTimeAsc(
                 market.getId(), new com.nebula.api.util.OffsetPageable(offset, limit));
 
         List<MarketSnapshotDto> snapshotDtos = snapshots.stream()

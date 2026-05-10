@@ -63,14 +63,18 @@ polybacktest:
     retry-attempts: 3
     retry-delay-ms: 1000
   backup:
-    run-on-startup: ${BACKUP_RUN_ON_STARTUP:true}
-    force-fresh: ${BACKUP_FORCE_FRESH:true}
+    # Auto-fire on startup is OFF by default — a normal deploy is a no-op.
+    # To run a backfill, set BACKUP_RUN_ON_STARTUP=true (and optionally
+    # BACKUP_FORCE_FRESH=true to wipe progress) in the deploy env, then
+    # redeploy. Flip back to false (or remove) once the run completes.
+    run-on-startup: ${BACKUP_RUN_ON_STARTUP:false}
+    force-fresh: ${BACKUP_FORCE_FRESH:false}
     coin-prefix: ${BACKUP_COIN_PREFIX:eth}
     coin: ${BACKUP_COIN:ETH}
     # Comma-separated list of intervals to walk in order. The runner steps
     # them sequentially on a single executor (rate-limit-aware). Each
     # interval gets its own backup_progress row keyed by "{prefix}-updown-{iv}".
-    intervals: ${BACKUP_INTERVALS:5m}
+    intervals: ${BACKUP_INTERVALS:5m,15m}
     start-epoch: 1778320800
     end-epoch: 1775645914
     max-iterations: 10000
