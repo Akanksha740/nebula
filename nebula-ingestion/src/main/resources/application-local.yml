@@ -67,7 +67,8 @@ polybacktest:
 nebula:
   api-key: nebula-local-key
   snapshot:
-    interval-ms: 500       # Snapshot interval in milliseconds (500 = 2 per second)
+    interval-ms: 500       # Short markets except BTC 5m (500 = 2 per second)
+    btc-5m-interval-ms: 100  # BTC 5m only: 10 per second
     log-each-tick: false   # Set to true to log each snapshot tick
   retention:
     days: 31

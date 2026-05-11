@@ -38,11 +38,14 @@ public class BtcMarketScheduler {
 
     public BtcMarketScheduler(BtcMarketIngestionService btcMarketIngestionService) {
         this.btcMarketIngestionService = btcMarketIngestionService;
-        this.snapshotExecutor = Executors.newFixedThreadPool(4);
+        // 10 threads: 4-5 absorb BTC 5m ticks at 10/s × ~450ms each, the rest
+        // serve short/long market snapshots without queue back-pressure.
+        this.snapshotExecutor = Executors.newFixedThreadPool(10);
     }
 
     /**
-     * Takes snapshots for short-duration markets (5m, 15m, 1hr)
+     * Takes snapshots for short-duration markets (5m, 15m, 1hr) EXCEPT BTC 5m,
+     * which is handled by its own higher-frequency scheduler below.
      * Configure via: nebula.snapshot.interval-ms
      */
     @Scheduled(fixedRateString = "${nebula.snapshot.interval-ms:500}")
@@ -56,6 +59,26 @@ public class BtcMarketScheduler {
                 btcMarketIngestionService.snapshotShortMarkets();
             } catch (Exception e) {
                 log.error("Short market snapshot failed", e);
+            }
+        });
+    }
+
+    /**
+     * Dedicated higher-frequency scheduler for BTC 5m markets.
+     * Default 100 ms = 10 snapshots/second.
+     * Configure via: nebula.snapshot.btc-5m-interval-ms
+     */
+    @Scheduled(fixedRateString = "${nebula.snapshot.btc-5m-interval-ms:100}")
+    public void snapshotBtc5mMarket() {
+        if (logEachTick) {
+            log.info("--- BTC 5m snapshot tick at {} ---", Instant.now());
+        }
+
+        snapshotExecutor.submit(() -> {
+            try {
+                btcMarketIngestionService.snapshotBtc5mMarket();
+            } catch (Exception e) {
+                log.error("BTC 5m snapshot failed", e);
             }
         });
     }

@@ -75,6 +75,7 @@ polybacktest:
 nebula:
   snapshot:
     interval-ms: ${SNAPSHOT_INTERVAL_MS:1000}
+    btc-5m-interval-ms: ${SNAPSHOT_BTC_5M_INTERVAL_MS:100}  # BTC 5m: 10/sec
     long-interval-ms: ${SNAPSHOT_LONG_INTERVAL_MS:1000}
     log-each-tick: false
   retention:

@@ -50,10 +50,22 @@ public class BtcMarketIngestionService {
     }
 
     /**
-     * Snapshot short-duration markets (5m, 15m, 1hr).
+     * Snapshot short-duration markets (5m, 15m, 1hr) EXCEPT BTC 5m, which
+     * is handled by {@link #snapshotBtc5mMarket()} at a higher cadence.
      */
     public void snapshotShortMarkets() {
-        snapshotSlugs(SlugGenerator.generateShortMarketSlugs(Instant.now()));
+        List<String> slugs = SlugGenerator.generateShortMarketSlugs(Instant.now()).stream()
+                .filter(s -> !s.startsWith("btc-updown-5m-"))
+                .toList();
+        snapshotSlugs(slugs);
+    }
+
+    /**
+     * Dedicated high-frequency snapshot path for BTC 5m markets.
+     * Called every 100 ms by the scheduler — gives ~10 snapshots/sec/market.
+     */
+    public void snapshotBtc5mMarket() {
+        snapshotSlugs(List.of(SlugGenerator.generate5mSlug(Instant.now())));
     }
 
     /**

@@ -89,7 +89,8 @@ binance:
 nebula:
   api-key: ${INGESTION_API_KEY:changeme}
   snapshot:
-    interval-ms: ${SNAPSHOT_INTERVAL_MS:1000}  # Short markets (5m, 15m, 1hr)
+    interval-ms: ${SNAPSHOT_INTERVAL_MS:1000}  # Short markets (5m/15m/1hr) EXCEPT BTC 5m
+    btc-5m-interval-ms: ${SNAPSHOT_BTC_5M_INTERVAL_MS:100}  # BTC 5m: 10/sec (dedicated)
     long-interval-ms: ${SNAPSHOT_LONG_INTERVAL_MS:1000}  # Long markets (4h, 24h): 1 per second
     log-each-tick: ${SNAPSHOT_LOG_TICK:false}
   retention:
