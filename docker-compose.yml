@@ -88,7 +88,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       INGESTION_API_KEY: ${INGESTION_API_KEY}
-      BACKUP_FORCE_FRESH: ${BACKUP_FORCE_FRESH:-true}
+      BACKUP_RUN_ON_STARTUP: ${BACKUP_RUN_ON_STARTUP:-false}
+      BACKUP_FORCE_FRESH: ${BACKUP_FORCE_FRESH:-false}
     depends_on:
       postgres:
         condition: service_healthy

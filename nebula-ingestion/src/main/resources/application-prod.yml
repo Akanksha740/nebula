@@ -52,6 +52,8 @@ polymarket:
     retry-delay-ms: 1000
   clob:
     base-url: https://clob.polymarket.com
+  rtds:
+    ws-url: ${POLYMARKET_RTDS_URL:wss://ws-live-data.polymarket.com}
 
 polybacktest:
   api:

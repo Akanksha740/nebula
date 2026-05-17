@@ -4,6 +4,7 @@ import com.nebula.common.entity.Coin;
 import com.nebula.common.entity.Market;
 import com.nebula.common.entity.MarketSnapshot;
 import com.nebula.ingestion.client.BinanceClient;
+import com.nebula.ingestion.client.ChainlinkClient;
 import com.nebula.ingestion.client.ClobClient;
 import com.nebula.ingestion.client.PolymarketClient;
 import com.nebula.ingestion.client.dto.OrderbookResponse;
@@ -36,6 +37,7 @@ public class BtcMarketIngestionService {
     private final PolymarketClient polymarketClient;
     private final ClobClient clobClient;
     private final BinanceClient binanceClient;
+    private final ChainlinkClient chainlinkClient;
     private final MarketRepository marketRepository;
     private final MarketSnapshotRepository snapshotRepository;
     private final MarketPersistenceService persistenceService;
@@ -65,7 +67,7 @@ public class BtcMarketIngestionService {
      * Called every 100 ms by the scheduler — gives ~10 snapshots/sec/market.
      */
     public void snapshotBtc5mMarket() {
-        snapshotSlugs(List.of(SlugGenerator.generate5mSlug(Instant.now())));
+        snapshotSlugs(List.of(SlugGenerator.generate5mSlug(Instant.now())), fetchCoinPricesWithChainlinkBtc());
     }
 
     /**
@@ -76,8 +78,10 @@ public class BtcMarketIngestionService {
     }
 
     private void snapshotSlugs(List<String> slugs) {
-        Map<Coin, BigDecimal> coinPrices = fetchAllCoinPrices();
+        snapshotSlugs(slugs, fetchAllCoinPrices());
+    }
 
+    private void snapshotSlugs(List<String> slugs, Map<Coin, BigDecimal> coinPrices) {
         int snapshotCount = 0;
         for (String slug : slugs) {
             try {
@@ -255,6 +259,24 @@ public class BtcMarketIngestionService {
         prices.put(Coin.ETH, ethPrice);
         prices.put(Coin.SOL, solPrice);
         log.info("Binance prices - BTC: {}, ETH: {}, SOL: {}", btcPrice, ethPrice, solPrice);
+        return prices;
+    }
+
+    /**
+     * BTC 5m market snapshots use Chainlink BTC/USD via Polymarket RTDS.
+     * Binance remains the fallback while the WebSocket cache is warming up.
+     */
+    private Map<Coin, BigDecimal> fetchCoinPricesWithChainlinkBtc() {
+        Map<Coin, BigDecimal> prices = fetchAllCoinPrices();
+
+        BigDecimal chainlinkBtcPrice = chainlinkClient.getBtcPrice();
+        if (chainlinkBtcPrice == null) {
+            log.warn("Chainlink BTC price unavailable for BTC 5m snapshot, falling back to Binance");
+            return prices;
+        }
+
+        prices.put(Coin.BTC, chainlinkBtcPrice);
+        log.debug("BTC 5m Chainlink price - BTC: {}", chainlinkBtcPrice);
         return prices;
     }
 
