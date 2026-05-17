@@ -42,6 +42,8 @@ polymarket:
     write-timeout-ms: 30000
     retry-attempts: 3
     retry-delay-ms: 1000
+  rtds:
+    ws-url: ${POLYMARKET_RTDS_URL:wss://ws-live-data.polymarket.com}
 
 # Polybacktest backup API (one-shot historical snapshot backfill)
 polybacktest:

@@ -21,7 +21,7 @@ import java.util.List;
  * own row in {@code backup_progress} (keyed by {@code coinPrefix-updown-iv}),
  * so resume state is per-interval.
  *
- * {@code BACKUP_FORCE_FRESH=true} (default) wipes all rows in
+ * {@code BACKUP_FORCE_FRESH=true} wipes all rows in
  * {@code backup_progress} before the first run starts, so each restart
  * re-walks every configured interval from {@code startEpoch}. The count
  * heuristic in {@link SnapshotBackupService} skips already-complete markets
